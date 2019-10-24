@@ -310,7 +310,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 			qcli := rpctest.NewQueryClient(t, kern.GRPCListenAddress().String())
 			res, err := qcli.GetMetadata(context.Background(), &rpcquery.GetMetadataParam{Address: &addressA})
 			require.NoError(t, err)
-			assert.Equal(t, res.Metadata, string(solidity.Abi_A))
+			assert.Equal(t, string(solidity.Abi_A), res.Metadata)
 			// CreateB
 			spec, err := abi.ReadSpec(solidity.Abi_A)
 			require.NoError(t, err)
@@ -323,7 +323,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 			// check ABI for contract B
 			res, err = qcli.GetMetadata(context.Background(), &rpcquery.GetMetadataParam{Address: &addressB})
 			require.NoError(t, err)
-			assert.Equal(t, res.Metadata, string(solidity.Abi_B))
+			assert.Equal(t, string(solidity.Abi_B), res.Metadata)
 			// CreateC
 			spec, err = abi.ReadSpec(solidity.Abi_B)
 			require.NoError(t, err)
@@ -336,7 +336,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 			// check abi for contract C
 			res, err = qcli.GetMetadata(context.Background(), &rpcquery.GetMetadataParam{Address: &addressC})
 			require.NoError(t, err)
-			assert.Equal(t, res.Metadata, string(solidity.Abi_C))
+			assert.Equal(t, string(solidity.Abi_C), res.Metadata)
 			return
 		})
 
@@ -357,7 +357,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 			var direction string
 			var depth int64
 			evAbi := spec.EventsByName["ChangeLevel"]
-			err = abi.UnpackEvent(&evAbi, log.Topics, log.Data, &direction, &depth)
+			err = abi.UnpackEvent(evAbi, log.Topics, log.Data, &direction, &depth)
 			require.NoError(t, err)
 			assert.Equal(t, evAbi.ID.Bytes(), log.Topics[0].Bytes())
 			assert.Equal(t, int64(18), depth)
@@ -382,7 +382,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 			data := abi.GetPackingTypes(evAbi.Inputs)
 			// Check signature
 			assert.Equal(t, evAbi.ID.Bytes(), log.Topics[0].Bytes())
-			err = abi.UnpackEvent(&evAbi, log.Topics, log.Data.Bytes(), data...)
+			err = abi.UnpackEvent(evAbi, log.Topics, log.Data.Bytes(), data...)
 			require.NoError(t, err)
 
 			h := sha3.NewLegacyKeccak256()
@@ -424,7 +424,7 @@ func testCallTx(t *testing.T, kern *core.Kernel, cli rpctransact.TransactClient)
 					data[i] = new(string)
 				}
 			}
-			err = abi.UnpackEvent(&evAbi, log.Topics, log.Data.Bytes(), data...)
+			err = abi.UnpackEvent(evAbi, log.Topics, log.Data.Bytes(), data...)
 			require.NoError(t, err)
 
 			h := sha3.NewLegacyKeccak256()
