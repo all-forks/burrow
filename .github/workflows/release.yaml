@@ -1,4 +1,4 @@
-name: Release
+name: release
 on:
   push:
     tags:
@@ -6,46 +6,49 @@ on:
 
 jobs:
   go:
-    name: GoReleaser
+    name: goreleaser
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
-    - name: Publish
-      uses: docker://goreleaser/goreleaser
+    - uses: actions/checkout@v2
+    - run: git fetch --prune --unshallow
+    - uses: actions/setup-go@v1
+      with:
+        go-version: 1.16
+    - uses: goreleaser/goreleaser-action@v1
+      with:
+        version: latest
+        args: release --release-notes "NOTES.md"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        args: release --release-notes "NOTES.md"
-      if: success()
 
   js:
-    name: NPM
+    name: npm
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - run: git fetch --unshallow --prune
     - uses: actions/setup-node@v1
       with:
-        node-version: '12.x'
-    - name: Publish
+        always-auth: true
+        node-version: '14.x'
+        registry-url: 'https://registry.npmjs.org'
+    - name: publish
       env:
-        NPM_EMAIL: ${{ secrets.NPM_EMAIL }}
-        NPM_USER: ${{ secrets.NPM_USER }}
-        NPM_PASS: ${{ secrets.NPM_PASS }}
+        NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       run: |
-        git config --global user.name "${NPM_USER}"
-        git config --global user.email "${NPM_EMAIL}"
-        npm install -g npm-cli-login
-        npm-cli-login
-        npm version from-git
-        npm publish --access public .
+        git config --global user.email "${GITHUB_ACTOR}"
+        git config --global user.name "${GITHUB_ACTOR}"
+        make publish_js
+
 
   docker:
-    name: Docker
+    name: docker
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+    - run: git fetch --unshallow --prune
     - run: make docker_build
-    - name: Publish
+    - name: publish
       env:
         DOCKER_REPO: "hyperledger/burrow"
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
@@ -54,4 +57,17 @@ jobs:
         export tag=$(git tag --points-at HEAD)
         echo ${DOCKER_PASS} | docker login --username ${DOCKER_USER} --password-stdin
         docker tag ${DOCKER_REPO}:${tag#v} ${DOCKER_REPO}:latest
-        docker push ${DOCKER_REPO}
+        docker push --all-tags ${DOCKER_REPO}
+
+# TODO: reinstate
+#  charts:
+#    runs-on: ubuntu-latest
+#    env:
+#      HELM_USERNAME: ${{ secrets.CM_USERNAME }}
+#      HELM_PASSWORD: ${{ secrets.CM_PASSWORD }}
+#      HELM_URL:  ${{ secrets.CM_URL }}
+#    steps:
+#    - uses: actions/checkout@v2
+#    - run: git fetch --unshallow --prune
+#    - run: make helm_deps
+#    - run: make helm_push

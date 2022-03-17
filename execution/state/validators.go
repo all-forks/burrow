@@ -90,13 +90,15 @@ func (ws *writeState) MakeGenesisValidators(genesisDoc *genesis.GenesisDoc) erro
 	return nil
 }
 
-func (s *ReadState) Power(id crypto.Address) (*big.Int, error) {
+func (s *ImmutableState) Power(id crypto.Address) (*big.Int, error) {
 	tree, err := s.Forest.Reader(keys.Validator.Prefix())
 	if err != nil {
 		return nil, err
 	}
-	bs := tree.Get(keys.Validator.KeyNoPrefix(id))
-	if len(bs) == 0 {
+	bs, err := tree.Get(keys.Validator.KeyNoPrefix(id))
+	if err != nil {
+		return nil, err
+	} else if len(bs) == 0 {
 		return new(big.Int), nil
 	}
 	v := new(validator.Validator)
@@ -107,7 +109,7 @@ func (s *ReadState) Power(id crypto.Address) (*big.Int, error) {
 	return v.BigPower(), nil
 }
 
-func (s *ReadState) IterateValidators(fn func(id crypto.Addressable, power *big.Int) error) error {
+func (s *ImmutableState) IterateValidators(fn func(id crypto.Addressable, power *big.Int) error) error {
 	tree, err := s.Forest.Reader(keys.Validator.Prefix())
 	if err != nil {
 		return err
@@ -122,7 +124,7 @@ func (s *ReadState) IterateValidators(fn func(id crypto.Addressable, power *big.
 	})
 }
 
-func (ws *writeState) SetPower(id crypto.PublicKey, power *big.Int) (*big.Int, error) {
+func (ws *writeState) SetPower(id *crypto.PublicKey, power *big.Int) (*big.Int, error) {
 	// SetPower in ring
 	flow, err := ws.ring.SetPower(id, power)
 	if err != nil {
@@ -132,20 +134,18 @@ func (ws *writeState) SetPower(id crypto.PublicKey, power *big.Int) (*big.Int, e
 	return flow, ws.setPower(id, power)
 }
 
-func (ws *writeState) setPower(id crypto.PublicKey, power *big.Int) error {
-	tree, err := ws.forest.Writer(keys.Validator.Prefix())
-	if err != nil {
-		return err
-	}
-	key := keys.Validator.KeyNoPrefix(id.GetAddress())
-	if power.Sign() == 0 {
-		tree.Delete(key)
+func (ws *writeState) setPower(id *crypto.PublicKey, power *big.Int) error {
+	return ws.forest.Write(keys.Validator.Prefix(), func(tree *storage.RWTree) error {
+		key := keys.Validator.KeyNoPrefix(id.GetAddress())
+		if power.Sign() == 0 {
+			tree.Delete(key)
+			return nil
+		}
+		bs, err := encoding.Encode(validator.New(id, power))
+		if err != nil {
+			return err
+		}
+		tree.Set(key, bs)
 		return nil
-	}
-	bs, err := encoding.Encode(validator.New(id, power))
-	if err != nil {
-		return err
-	}
-	tree.Set(key, bs)
-	return nil
+	})
 }

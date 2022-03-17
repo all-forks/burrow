@@ -21,7 +21,7 @@ type Source interface {
 	Error() error
 }
 
-var Codes = codes{
+var Codes = &codes{
 	None:                   code("none"),
 	UnknownAddress:         code("unknown address"),
 	InsufficientBalance:    code("insufficient balance"),
@@ -64,6 +64,7 @@ var Codes = codes{
 	UnresolvedSymbols:      code("code has unresolved symbols"),
 	InvalidContractCode:    code("contract being created with unexpected code"),
 	NonExistentAccount:     code("account does not exist"),
+	NotCallable:            code("cannot dispatch call"),
 }
 
 func init() {

@@ -42,10 +42,10 @@ func TestTransactServer(t *testing.T) {
 		require.NoError(t, err)
 
 		// Account PublicKey should be initially unset
-		assert.False(t, acc.PublicKey.IsSet())
+		assert.False(t, acc.GetPublicKey().IsSet())
 
 		// Sign with this account - should set public key
-		_, err = rpctest.CreateContract(tcli, input.GetAddress(), solidity.Bytecode_StrangeLoop, nil)
+		_, err = rpctest.CreateEVMContract(tcli, input.GetAddress(), solidity.Bytecode_StrangeLoop, nil)
 		require.NoError(t, err)
 		acc, err = qcli.GetAccount(context.Background(), &rpcquery.GetAccountParam{Address: input.GetAddress()})
 
@@ -62,7 +62,7 @@ func TestTransactServer(t *testing.T) {
 		})
 		require.NoError(t, err)
 		amount := uint64(2123)
-		txEnv := txs.Enclose(rpctest.GenesisDoc.ChainID(), &payload.SendTx{
+		txEnv := txs.Enclose(rpctest.GenesisDoc.GetChainID(), &payload.SendTx{
 			Inputs: []*payload.TxInput{{
 				Address:  inputAddress,
 				Sequence: acc.Sequence + 1,
@@ -120,7 +120,7 @@ func TestTransactServer(t *testing.T) {
 		// We should see the sign bytes embedded
 		if !assert.Contains(t, string(bs), fmt.Sprintf("{\"ChainID\":\"%s\",\"Type\":\"CallTx\","+
 			"\"Payload\":{\"Input\":{\"Address\":\"E80BB91C2F0F4C3C39FC53E89BF8416B219BE6E4\",\"Amount\":230},"+
-			"\"Data\":\"0203060403\"}}", rpctest.GenesisDoc.ChainID())) {
+			"\"Data\":\"0203060403\"}}", rpctest.GenesisDoc.GetChainID())) {
 			fmt.Println(string(bs))
 		}
 	})

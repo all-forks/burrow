@@ -6,7 +6,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"strconv"
@@ -21,17 +20,17 @@ import (
 	"github.com/hyperledger/burrow/core"
 	"github.com/hyperledger/burrow/execution"
 	"github.com/hyperledger/burrow/genesis"
-	"github.com/hyperledger/burrow/keys/mock"
+	"github.com/hyperledger/burrow/keys"
 	"github.com/hyperledger/burrow/logging"
 	"github.com/hyperledger/burrow/logging/logconfig"
 	"github.com/hyperledger/burrow/permission"
 	"github.com/hyperledger/burrow/rpc"
+	"github.com/hyperledger/burrow/testutil"
 	"github.com/stretchr/testify/require"
 )
 
 const (
-	ChainName  = "Integration_Test_Chain"
-	scratchDir = "test_scratch"
+	ChainName = "Integration_Test_Chain"
 )
 
 // Enable logger output during tests
@@ -76,7 +75,8 @@ func NewTestConfig(genesisDoc *genesis.GenesisDoc,
 	nodeNumber := atomic.AddUint64(&node, 1)
 	name := fmt.Sprintf("node_%03d", nodeNumber)
 	conf = config.DefaultBurrowConfig()
-	testDir, cleanup := EnterTestDirectory()
+	conf.Logging = nil
+	testDir, cleanup := testutil.EnterTestDirectory()
 	conf.BurrowDir = path.Join(testDir, fmt.Sprintf(".burrow_%s", name))
 	conf.GenesisDoc = genesisDoc
 	conf.Tendermint.Moniker = name
@@ -116,7 +116,8 @@ func TestKernel(validatorAccount *acm.PrivateAccount, keysAccounts []*acm.Privat
 		return nil, err
 	}
 
-	kern.SetLogger(logging.NewNoopLogger())
+	logger := logging.NewNoopLogger()
+	kern.SetLogger(logger)
 	if testConfig.Logging != nil {
 		err := kern.LoadLoggerFromConfig(testConfig.Logging)
 		if err != nil {
@@ -124,7 +125,7 @@ func TestKernel(validatorAccount *acm.PrivateAccount, keysAccounts []*acm.Privat
 		}
 	}
 
-	kern.SetKeyClient(mock.NewKeyClient(keysAccounts...))
+	kern.SetKeyClient(keys.NewLocalKeyClient(keys.NewMemoryKeyStore(keysAccounts...), logger))
 
 	err = kern.LoadExecutionOptionsFromConfig(testConfig.Execution)
 	if err != nil {
@@ -145,21 +146,6 @@ func TestKernel(validatorAccount *acm.PrivateAccount, keysAccounts []*acm.Privat
 
 	kern.AddProcesses(core.DefaultProcessLaunchers(kern, testConfig.RPC, testConfig.Keys)...)
 	return kern, nil
-}
-
-func EnterTestDirectory() (testDir string, cleanup func()) {
-	var err error
-	testDir, err = ioutil.TempDir("", scratchDir)
-	if err != nil {
-		panic(fmt.Errorf("could not make temp dir for integration tests: %v", err))
-	}
-	// If you need to inspectdirs
-	//testDir := scratchDir
-	os.RemoveAll(testDir)
-	os.MkdirAll(testDir, 0777)
-	os.Chdir(testDir)
-	os.MkdirAll("config", 0777)
-	return testDir, func() { os.RemoveAll(testDir) }
 }
 
 // TestGenesisDoc creates genesis from a set of accounts

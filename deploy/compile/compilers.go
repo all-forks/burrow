@@ -237,7 +237,7 @@ func EVM(file string, optimize bool, workDir string, libraries map[string]string
 
 	input.Sources[file] = SolidityInputSource{Urls: []string{file}}
 	input.Settings.Optimizer.Enabled = optimize
-	input.Settings.OutputSelection.File.OutputType = []string{"abi", "evm.deployedBytecode.object", "evm.bytecode.linkReferences", "metadata", "bin", "devdoc"}
+	input.Settings.OutputSelection.File.OutputType = []string{"abi", "evm.bytecode.object", "evm.deployedBytecode.object", "evm.bytecode.linkReferences", "metadata", "bin", "devdoc"}
 	input.Settings.Libraries = make(map[string]map[string]string)
 	input.Settings.Libraries[""] = make(map[string]string)
 
@@ -324,7 +324,7 @@ func EVM(file string, optimize bool, workDir string, libraries map[string]string
 }
 
 func WASM(file string, workDir string, logger *logging.Logger) (*Response, error) {
-	shellCmd := exec.Command("solang", "--standard-json", file)
+	shellCmd := exec.Command("solang", "--target", "ewasm", "--standard-json", file)
 	if workDir != "" {
 		shellCmd.Dir = workDir
 	}

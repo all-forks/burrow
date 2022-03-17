@@ -15,12 +15,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/hyperledger/burrow/dump"
-
 	"github.com/go-kit/kit/log"
 	"github.com/hyperledger/burrow/bcm"
 	"github.com/hyperledger/burrow/consensus/tendermint"
 	"github.com/hyperledger/burrow/crypto"
+	"github.com/hyperledger/burrow/dump"
+	"github.com/hyperledger/burrow/rpc/web3"
+
+	// GRPC Codec
+	_ "github.com/hyperledger/burrow/encoding"
 	"github.com/hyperledger/burrow/event"
 	"github.com/hyperledger/burrow/execution"
 	"github.com/hyperledger/burrow/execution/state"
@@ -50,7 +53,7 @@ type Kernel struct {
 	// Expose these public-facing interfaces to allow programmatic extension of the Kernel by other projects
 	Emitter        *event.Emitter
 	Service        *rpc.Service
-	EthService     *rpc.EthService
+	EthService     *web3.EthService
 	Launchers      []process.Launcher
 	State          *state.State
 	Blockchain     *bcm.Blockchain
@@ -64,7 +67,7 @@ type Kernel struct {
 	checker        execution.BatchExecutor
 	committer      execution.BatchCommitter
 	keyClient      keys.KeyClient
-	keyStore       *keys.KeyStore
+	keyStore       *keys.FilesystemKeyStore
 	info           string
 	processes      map[string]process.Process
 	listeners      map[string]net.Listener
@@ -79,6 +82,13 @@ func NewKernel(dbDir string) (*Kernel, error) {
 		return nil, fmt.Errorf("Burrow requires a database directory")
 	}
 	runID, err := simpleuuid.NewTime(time.Now()) // Create a random ID based on start time
+	if err != nil {
+		return nil, fmt.Errorf("could not create runID UUID: %w", err)
+	}
+	db, err := dbm.NewDB(BurrowDBName, dbm.GoLevelDBBackend, dbDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not create DB for Kernel: %w", err)
+	}
 	return &Kernel{
 		Logger:         logging.NewNoopLogger(),
 		RunID:          runID,
@@ -87,7 +97,7 @@ func NewKernel(dbDir string) (*Kernel, error) {
 		listeners:      make(map[string]net.Listener),
 		shutdownNotify: make(chan struct{}),
 		txCodec:        txs.NewProtobufCodec(),
-		database:       dbm.NewDB(BurrowDBName, dbm.GoLevelDBBackend, dbDir),
+		database:       db,
 	}, err
 }
 
@@ -128,7 +138,13 @@ func (kern *Kernel) LoadState(genesisDoc *genesis.GenesisDoc) (err error) {
 			return fmt.Errorf("could not build genesis state: %v", err)
 		}
 
-		if err = kern.State.InitialCommit(); err != nil {
+		err = kern.State.InitialCommit()
+		if err != nil {
+			return err
+		}
+
+		err = kern.Blockchain.CommitWithAppHash(kern.State.Hash())
+		if err != nil {
 			return err
 		}
 	}
@@ -136,8 +152,15 @@ func (kern *Kernel) LoadState(genesisDoc *genesis.GenesisDoc) (err error) {
 	kern.Logger.InfoMsg("State loading successful")
 
 	params := execution.ParamsFromGenesis(genesisDoc)
-	kern.checker = execution.NewBatchChecker(kern.State, params, kern.Blockchain, kern.Logger)
-	kern.committer = execution.NewBatchCommitter(kern.State, params, kern.Blockchain, kern.Emitter, kern.Logger, kern.exeOptions...)
+	kern.checker, err = execution.NewBatchChecker(kern.State, params, kern.Blockchain, kern.Logger)
+	if err != nil {
+		return fmt.Errorf("could not create BatchChecker: %w", err)
+	}
+	kern.committer, err = execution.NewBatchCommitter(kern.State, params, kern.Blockchain, kern.Emitter, kern.Logger,
+		kern.exeOptions...)
+	if err != nil {
+		return fmt.Errorf("could not create BatchCommitter: %w", err)
+	}
 	return nil
 }
 
@@ -168,21 +191,21 @@ func (kern *Kernel) LoadDump(genesisDoc *genesis.GenesisDoc, restoreFile string,
 
 	reader, err := dump.NewFileReader(restoreFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not create dump file reader: %w", err)
 	}
 
 	err = dump.Load(reader, kern.State)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not load dump state: %w", err)
 	}
 
 	if !bytes.Equal(kern.State.Hash(), kern.Blockchain.GenesisDoc().AppHash) {
-		return fmt.Errorf("restore produced a different apphash expect 0x%x got 0x%x",
+		return fmt.Errorf("restore produced a different apphash, expected %X by actual was %X",
 			kern.Blockchain.GenesisDoc().AppHash, kern.State.Hash())
 	}
 	err = kern.Blockchain.CommitWithAppHash(kern.State.Hash())
 	if err != nil {
-		return fmt.Errorf("unable to commit %v", err)
+		return fmt.Errorf("unable to commit %w", err)
 	}
 
 	kern.Logger.InfoMsg("State restore successful",
@@ -214,7 +237,7 @@ func (kern *Kernel) SetKeyClient(client keys.KeyClient) {
 }
 
 // SetKeyStore explicitly sets the key store
-func (kern *Kernel) SetKeyStore(store *keys.KeyStore) {
+func (kern *Kernel) SetKeyStore(store *keys.FilesystemKeyStore) {
 	kern.keyStore = store
 }
 

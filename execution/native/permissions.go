@@ -3,22 +3,23 @@ package native
 import (
 	"fmt"
 
+	"github.com/hyperledger/burrow/execution/engine"
+
 	"github.com/hyperledger/burrow/acm"
-	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/permission"
 )
 
 var Permissions = New().MustContract("Permissions",
-	`* acmstate.ReaderWriter for managing Secure Native authorizations.
+	`* Interface for managing Secure Native authorizations.
 		* @dev This interface describes the functions exposed by the native permissions layer in burrow.
 		`,
 	Function{
 		Comment: `
 			* @notice Adds a role to an account
-			* @param Account account address
-			* @param Role role name
-			* @return result whether role was added
+			* @param _account account address
+			* @param _role role name
+			* @return _result whether role was added
 			`,
 		PermFlag: permission.AddRole,
 		F:        addRole,
@@ -26,9 +27,9 @@ var Permissions = New().MustContract("Permissions",
 	Function{
 		Comment: `
 			* @notice Removes a role from an account
-			* @param Account account address
-			* @param Role role name
-			* @return result whether role was removed
+			* @param _account account address
+			* @param _role role name
+			* @return _result whether role was removed
 			`,
 		PermFlag: permission.RemoveRole,
 		F:        removeRole,
@@ -36,9 +37,9 @@ var Permissions = New().MustContract("Permissions",
 	Function{
 		Comment: `
 			* @notice Indicates whether an account has a role
-			* @param Account account address
-			* @param Role role name
-			* @return result whether account has role
+			* @param _account account address
+			* @param _role role name
+			* @return _result whether account has role
 			`,
 		PermFlag: permission.HasRole,
 		F:        hasRole,
@@ -46,10 +47,10 @@ var Permissions = New().MustContract("Permissions",
 	Function{
 		Comment: `
 			* @notice Sets the permission flags for an account. Makes them explicitly set (on or off).
-			* @param Account account address
-			* @param Permission the base permissions flags to set for the account
-			* @param Set whether to set or unset the permissions flags at the account level
-			* @return The permission flag that was set as uint64
+			* @param _account account address
+			* @param _permission the base permissions flags to set for the account
+			* @param _set whether to set or unset the permissions flags at the account level
+			* @return _result is the permission flag that was set as uint64
 			`,
 		PermFlag: permission.SetBase,
 		F:        setBase,
@@ -57,9 +58,9 @@ var Permissions = New().MustContract("Permissions",
 	Function{
 		Comment: `
 			* @notice Unsets the permissions flags for an account. Causes permissions being unset to fall through to global permissions.
-      		* @param Account account address
-      		* @param Permission the permissions flags to unset for the account
-			* @return The permission flag that was unset as uint64
+      		* @param _account account address
+      		* @param _permission the permissions flags to unset for the account
+			* @return _result is the permission flag that was unset as uint64
       `,
 		PermFlag: permission.UnsetBase,
 		F:        unsetBase,
@@ -67,49 +68,23 @@ var Permissions = New().MustContract("Permissions",
 	Function{
 		Comment: `
 			* @notice Indicates whether an account has a subset of permissions set
-			* @param Account account address
-			* @param Permission the permissions flags (mask) to check whether enabled against base permissions for the account
-			* @return result whether account has the passed permissions flags set
+			* @param _account account address
+			* @param _permission the permissions flags (mask) to check whether enabled against base permissions for the account
+			* @return _result is whether account has the passed permissions flags set
 			`,
 		PermFlag: permission.HasBase,
 		F:        hasBase,
 	},
 	Function{Comment: `
 			* @notice Sets the global (default) permissions flags for the entire chain
-			* @param Permission the permissions flags to set
-			* @param Set whether to set (or unset) the permissions flags
-			* @return The permission flag that was set as uint64
+			* @param _permission the permissions flags to set
+			* @param _set whether to set (or unset) the permissions flags
+			* @return _result is the permission flag that was set as uint64
 			`,
 		PermFlag: permission.SetGlobal,
 		F:        setGlobal,
 	},
 )
-
-// CONTRACT: it is the duty of the contract writer to call known permissions
-// we do not convey if a permission is not set
-// (unlike in state/execution, where we guarantee HasPermission is called
-// on known permissions and panics else)
-// If the perm is not defined in the acc nor set by default in GlobalPermissions,
-// this function returns false.
-func HasPermission(st acmstate.Reader, address crypto.Address, perm permission.PermFlag) (bool, error) {
-	acc, err := st.GetAccount(address)
-	if err != nil {
-		return false, err
-	}
-	if acc == nil {
-		return false, fmt.Errorf("account %v does not exist", address)
-	}
-	globalPerms, err := acmstate.GlobalAccountPermissions(st)
-	if err != nil {
-		return false, err
-	}
-	perms := acc.Permissions.Base.Compose(globalPerms.Base)
-	value, err := perms.Get(perm)
-	if err != nil {
-		return false, err
-	}
-	return value, nil
-}
 
 type hasBaseArgs struct {
 	Account    crypto.Address
@@ -125,7 +100,7 @@ func hasBase(ctx Context, args hasBaseArgs) (hasBaseRets, error) {
 	if !permN.IsValid() {
 		return hasBaseRets{}, permission.ErrInvalidPermission(permN)
 	}
-	hasPermission, err := HasPermission(ctx.State, args.Account, permN)
+	hasPermission, err := engine.HasPermission(ctx.State, args.Account, permN)
 	if err != nil {
 		return hasBaseRets{}, err
 	}
@@ -151,8 +126,9 @@ func setBase(ctx Context, args setBaseArgs) (setBaseRets, error) {
 	if !permFlag.IsValid() {
 		return setBaseRets{}, permission.ErrInvalidPermission(permFlag)
 	}
-	err := UpdateAccount(ctx.State, args.Account, func(acc *acm.Account) error {
-		return acc.Permissions.Base.Set(permFlag, args.Set)
+	err := engine.UpdateAccount(ctx.State, args.Account, func(acc *acm.Account) error {
+		err := acc.Permissions.Base.Set(permFlag, args.Set)
+		return err
 	})
 	if err != nil {
 		return setBaseRets{}, err
@@ -177,7 +153,7 @@ func unsetBase(ctx Context, args unsetBaseArgs) (unsetBaseRets, error) {
 	if !permFlag.IsValid() {
 		return unsetBaseRets{}, permission.ErrInvalidPermission(permFlag)
 	}
-	err := UpdateAccount(ctx.State, args.Account, func(acc *acm.Account) error {
+	err := engine.UpdateAccount(ctx.State, args.Account, func(acc *acm.Account) error {
 		return acc.Permissions.Base.Unset(permFlag)
 	})
 	if err != nil {
@@ -204,7 +180,7 @@ func setGlobal(ctx Context, args setGlobalArgs) (setGlobalRets, error) {
 	if !permFlag.IsValid() {
 		return setGlobalRets{}, permission.ErrInvalidPermission(permFlag)
 	}
-	err := UpdateAccount(ctx.State, acm.GlobalPermissionsAddress, func(acc *acm.Account) error {
+	err := engine.UpdateAccount(ctx.State, acm.GlobalPermissionsAddress, func(acc *acm.Account) error {
 		return acc.Permissions.Base.Set(permFlag, args.Set)
 	})
 	if err != nil {
@@ -226,7 +202,7 @@ type hasRoleRets struct {
 }
 
 func hasRole(ctx Context, args hasRoleArgs) (hasRoleRets, error) {
-	acc, err := mustAccount(ctx.State, args.Account)
+	acc, err := engine.MustAccount(ctx.State, args.Account)
 	if err != nil {
 		return hasRoleRets{}, err
 	}
@@ -248,7 +224,7 @@ type addRoleRets struct {
 
 func addRole(ctx Context, args addRoleArgs) (addRoleRets, error) {
 	ret := addRoleRets{}
-	err := UpdateAccount(ctx.State, args.Account, func(account *acm.Account) error {
+	err := engine.UpdateAccount(ctx.State, args.Account, func(account *acm.Account) error {
 		ret.Result = account.Permissions.AddRole(args.Role)
 		return nil
 	})
@@ -272,7 +248,7 @@ type removeRoleRets struct {
 
 func removeRole(ctx Context, args removeRoleArgs) (removeRoleRets, error) {
 	ret := removeRoleRets{}
-	err := UpdateAccount(ctx.State, args.Account, func(account *acm.Account) error {
+	err := engine.UpdateAccount(ctx.State, args.Account, func(account *acm.Account) error {
 		ret.Result = account.Permissions.RemoveRole(args.Role)
 		return nil
 	})

@@ -2,16 +2,16 @@ package contexts
 
 import (
 	"fmt"
+	"math/big"
+
+	"github.com/hyperledger/burrow/execution/vms"
 
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/errors"
-	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
-	"github.com/hyperledger/burrow/execution/native"
-	"github.com/hyperledger/burrow/execution/wasm"
 	"github.com/hyperledger/burrow/logging"
 	"github.com/hyperledger/burrow/logging/structure"
 	"github.com/hyperledger/burrow/txs/payload"
@@ -21,7 +21,7 @@ import (
 const GasLimit = uint64(1000000)
 
 type CallContext struct {
-	EVM           *evm.EVM
+	VMS           *vms.VirtualMachines
 	State         acmstate.ReaderWriter
 	MetadataState acmstate.MetadataReaderWriter
 	Blockchain    engine.Blockchain
@@ -72,7 +72,8 @@ func (ctx *CallContext) Precheck() (*acm.Account, *acm.Account, error) {
 	err = inAcc.SubtractFromBalance(ctx.tx.Fee)
 	if err != nil {
 		return nil, nil, errors.Errorf(errors.Codes.InsufficientFunds,
-			"Input account does not have sufficient balance to cover input amount: %v", ctx.tx.Input)
+			"Input account %v (balance: %d) does not have sufficient balance to cover input amount: %v",
+			inAcc.Address, inAcc.Balance, ctx.tx.Input)
 	}
 
 	// Calling a nil destination is defined as requesting contract creation
@@ -134,7 +135,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		callee = crypto.NewContractAddress(caller, ctx.txe.TxHash)
 		code = ctx.tx.Data
 		wcode = ctx.tx.WASM
-		err := native.CreateAccount(txCache, callee)
+		err := engine.CreateAccount(txCache, callee)
 		if err != nil {
 			return err
 		}
@@ -143,7 +144,7 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 			"init_code", code)
 
 		// store abis
-		err = native.UpdateContractMeta(txCache, metaCache, callee, ctx.tx.ContractMeta)
+		err = engine.UpdateContractMeta(txCache, metaCache, callee, ctx.tx.ContractMeta)
 		if err != nil {
 			return err
 		}
@@ -183,15 +184,20 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 	var ret []byte
 	var err error
 	txHash := ctx.txe.Envelope.Tx.Hash()
-	gas := ctx.tx.GasLimit
+	gas := new(big.Int).SetUint64(ctx.tx.GasLimit)
+
+	params := engine.CallParams{
+		Origin: caller,
+		Caller: caller,
+		Callee: callee,
+		Input:  ctx.tx.Data,
+		Value:  *new(big.Int).SetUint64(value),
+		Gas:    gas,
+	}
+
 	if len(wcode) != 0 {
-		if createContract {
-			err := native.InitWASMCode(txCache, callee, wcode)
-			if err != nil {
-				return err
-			}
-		}
-		ret, err = wasm.RunWASM(txCache, callee, createContract, wcode, ctx.tx.Data)
+		// TODO: accept options
+		ret, err = ctx.VMS.WVM.Execute(txCache, ctx.Blockchain, ctx.txe, params, wcode)
 		if err != nil {
 			// Failure. Charge the gas fee. The 'value' was otherwise not transferred.
 			ctx.Logger.InfoMsg("Error on WASM execution",
@@ -200,6 +206,12 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 			ctx.txe.PushError(errors.Wrap(err, "call error"))
 		} else {
 			ctx.Logger.TraceMsg("Successful execution")
+			if createContract {
+				err := engine.InitWASMCode(txCache, callee, ret)
+				if err != nil {
+					return err
+				}
+			}
 			err = ctx.Sync(txCache, metaCache)
 			if err != nil {
 				return err
@@ -207,31 +219,21 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		}
 	} else {
 		// EVM
-		ctx.EVM.SetNonce(txHash)
-		ctx.EVM.SetLogger(ctx.Logger.With(structure.TxHashKey, txHash))
+		ctx.VMS.EVM.SetNonce(txHash)
+		ctx.VMS.EVM.SetLogger(ctx.Logger.With(structure.TxHashKey, txHash))
 
-		params := engine.CallParams{
-			Origin: caller,
-			Caller: caller,
-			Callee: callee,
-			Input:  ctx.tx.Data,
-			Value:  value,
-			Gas:    &gas,
-		}
-
-		ret, err = ctx.EVM.Execute(txCache, ctx.Blockchain, ctx.txe, params, code)
+		ret, err = ctx.VMS.EVM.Execute(txCache, ctx.Blockchain, ctx.txe, params, code)
 
 		if err != nil {
 			// Failure. Charge the gas fee. The 'value' was otherwise not transferred.
 			ctx.Logger.InfoMsg("Error on EVM execution",
 				structure.ErrorKey, err)
 
-			ctx.txe.PushError(errors.Wrapf(err, "call error: %v\nEVM call trace: %s",
-				err, ctx.txe.CallTrace()))
+			ctx.txe.PushError(err)
 		} else {
 			ctx.Logger.TraceMsg("Successful execution")
 			if createContract {
-				err := native.InitCode(txCache, callee, ret)
+				err := engine.InitEVMCode(txCache, callee, ret)
 				if err != nil {
 					return err
 				}
@@ -243,7 +245,8 @@ func (ctx *CallContext) Deliver(inAcc, outAcc *acm.Account, value uint64) error 
 		}
 		ctx.CallEvents(err)
 	}
-	ctx.txe.Return(ret, ctx.tx.GasLimit-gas)
+	// Gas starts life as a uint64 and should only been reduced (used up) over a transaction so .Uint64() is safe
+	ctx.txe.Return(ret, ctx.tx.GasLimit-gas.Uint64())
 	// Create a receipt from the ret and whether it erred.
 	ctx.Logger.TraceMsg("VM Call complete",
 		"caller", caller,

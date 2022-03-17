@@ -119,7 +119,7 @@ func TestExecutionEventsTest(t *testing.T) {
 				blocks = append(blocks, be)
 				assert.Contains(t, strconv.FormatUint(be.Height, 10), "2")
 				return nil
-			})
+			}, exec.NonConsecutiveBlocks|exec.NonConsecutiveTxs)
 			require.Equal(t, io.EOF, err)
 			require.Len(t, blocks, 2, "should record blocks 2 and 12")
 			assert.Equal(t, uint64(2), blocks[0].Height)
@@ -165,7 +165,7 @@ func TestExecutionEventsTest(t *testing.T) {
 		})
 
 		t.Run("Revert", func(t *testing.T) {
-			txe, err := rpctest.CreateContract(tcli, inputAddress0, solidity.Bytecode_Revert, nil)
+			txe, err := rpctest.CreateEVMContract(tcli, inputAddress0, solidity.Bytecode_Revert, nil)
 			require.NoError(t, err)
 			spec, err := abi.ReadSpec(solidity.Abi_Revert)
 			require.NoError(t, err)
@@ -186,6 +186,34 @@ func TestExecutionEventsTest(t *testing.T) {
 			require.NoError(t, err)
 			n := countEventsAndCheckConsecutive(t, evs)
 			assert.Equal(t, 0, n, "should not see reverted events")
+		})
+
+		// This test triggered a bug when using 'latest' as the end bound and where the latest block is an empty block
+		// leading to streaming until another block is emitted causing clients to hang around much longer than they
+		// should
+		t.Run("GetEventsWithLatestBlockEmpty", func(t *testing.T) {
+			numSends := 5
+			blockRange := doSends(t, numSends, tcli, kern, inputAddress0, 999)
+			request := &rpcevents.BlocksRequest{
+				BlockRange: &rpcevents.BlockRange{
+					Start: blockRange.Start,
+					End:   rpcevents.LatestBound(),
+				},
+			}
+
+			n := 400
+			wait := time.Millisecond
+			before := time.Now()
+			for i := 0; i < n; i++ {
+				time.Sleep(wait)
+				responses, err := getEvents(t, request, ecli)
+				require.NoError(t, err)
+				assert.Equal(t, 2*numSends, countEventsAndCheckConsecutive(t, responses), "should receive every single input event per send")
+			}
+			elapsed := time.Now().Sub(before)
+			// This should complete very quickly unless it accidentally starts streaming in which case it will keep
+			// waiting for an empty block at each iteration after the bug is triggered
+			require.Less(t, elapsed, time.Duration(n)*wait*10)
 		})
 	})
 }

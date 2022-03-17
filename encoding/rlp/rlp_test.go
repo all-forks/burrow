@@ -1,7 +1,11 @@
 package rlp
 
 import (
+	"math/big"
 	"testing"
+
+	"github.com/hyperledger/burrow/crypto"
+	"github.com/hyperledger/burrow/encoding"
 
 	"github.com/test-go/testify/require"
 )
@@ -23,22 +27,22 @@ func TestEncoding(t *testing.T) {
 		var tests = []testCase{
 			{
 				[]byte{},
-				[]byte{EmptyString},
+				[]byte{uint8(StringOffset)},
 				[]byte{},
 			},
 			{
 				"",
-				[]byte{EmptyString},
+				[]byte{uint8(StringOffset)},
 				[]byte{},
 			},
 			{
 				0,
-				[]byte{EmptyString},
+				[]byte{uint8(StringOffset)},
 				[]byte{},
 			},
 			{
 				[]string{},
-				[]byte{EmptySlice},
+				[]byte{uint8(SliceOffset)},
 				[]byte{},
 			},
 		}
@@ -55,7 +59,7 @@ func TestEncoding(t *testing.T) {
 			},
 			{
 				false,
-				[]byte{EmptyString},
+				[]byte{uint8(StringOffset)},
 				[]byte{0},
 			},
 		}
@@ -65,6 +69,11 @@ func TestEncoding(t *testing.T) {
 
 	t.Run("String", func(t *testing.T) {
 		var tests = []testCase{
+			{
+				[]byte{0, 0},
+				[]byte{uint8(StringOffset) + 2, 0, 0},
+				[]byte{0, 0},
+			},
 			{
 				[]byte{0x64, 0x6f, 0x67},
 				[]byte{0x83, 100, 111, 103},
@@ -108,9 +117,26 @@ func TestEncoding(t *testing.T) {
 				[][]byte{[]byte("cat"), []byte("dog")},
 			},
 			{
-				[][]string{[]string{"cat", "dog"}, []string{"owl"}},
+				[][]string{{"cat", "dog"}, {"owl"}},
 				[]byte{0xce, 0xc8, 0x83, byte('c'), byte('a'), byte('t'), 0x83, byte('d'), byte('o'), byte('g'), 0xc4, 0x83, byte('o'), byte('w'), byte('l')},
 				[][]byte{[]byte("cat"), []byte("dog"), []byte("owl")},
+			},
+		}
+
+		trial(t, tests)
+	})
+
+	t.Run("Integers", func(t *testing.T) {
+		var tests = []testCase{
+			{
+				[]uint64{23, 233, 30400},
+				[]byte{0xc6, 0x17, 0x81, 0xe9, 0x82, 0x76, 0xc0},
+				[][]byte{{23}, {233}, {0x76, 0xc0}},
+			},
+			{
+				[]*big.Int{big.NewInt(23), big.NewInt(233), big.NewInt(30400)},
+				[]byte{0xc6, 0x17, 0x81, 0xe9, 0x82, 0x76, 0xc0},
+				[][]byte{{23}, {233}, {0x76, 0xc0}},
 			},
 		}
 
@@ -134,7 +160,7 @@ func trial(t *testing.T, tests []testCase) {
 	for _, tt := range tests {
 		enc, err := Encode(tt.in)
 		require.NoError(t, err)
-		require.Equal(t, tt.enc, enc)
+		require.Equal(t, tt.enc, enc, "encoding must match")
 
 		var dec interface{}
 
@@ -151,11 +177,11 @@ func trial(t *testing.T, tests []testCase) {
 
 		err = Decode(enc, dec)
 		require.NoError(t, err)
-		require.Equal(t, tt.dec, dec)
+		require.Equal(t, tt.dec, dec, "decoding must match")
 	}
 }
 
-type RawTx struct {
+type pretendTx struct {
 	Nonce    uint64 `json:"nonce"`
 	GasPrice uint64 `json:"gasPrice"`
 	Gas      uint64 `json:"gas"`
@@ -163,9 +189,9 @@ type RawTx struct {
 	Value    uint64 `json:"value"`
 	Input    []byte `json:"input"`
 
-	V []byte `json:"v"`
-	R []byte `json:"r"`
-	S []byte `json:"s"`
+	V *big.Int `json:"v"`
+	R []byte   `json:"r"`
+	S []byte   `json:"s"`
 }
 
 func TestEthTransaction(t *testing.T) {
@@ -173,13 +199,110 @@ func TestEthTransaction(t *testing.T) {
 	// data, err := hex.DecodeString(raw)
 	// require.NoError(t, err)
 
-	data, err := Encode([]interface{}{uint64(6), uint64(10000000000000), uint64(196608), []byte{250, 60, 170, 188, 142, 239, 236, 43, 94, 40, 149, 229, 175, 191, 121, 55, 158, 114, 104, 167}, uint64(0), []byte{}, uint64(1), uint(0), uint(0)})
+	//input := []interface{}{
+	//	uint64(6),              // Nonce
+	//	uint64(10000000000000), // GasPrice
+	//	uint64(196608),         // Gas
+	//	[]byte{250, 60, 170, 188, 142, 239, 236, 43, 94, 40, 149, 229, 175, 191, 121, 55, 158, 114, 104, 167}, // To
+	//	uint64(0), // Value
+	//	[]byte{},  // Input
+	//	uint64(1), // V
+	//	uint(0),   // R
+	//	uint(0),   // S
+	//}
+	input := &pretendTx{
+		uint64(6),              // Nonce
+		uint64(10000000000000), // GasPrice
+		uint64(196608),         // Gas
+		[]byte{250, 60, 170, 188, 142, 239, 236, 43, 94, 40, 149, 229, 175, 191, 121, 55, 158, 114, 104, 167}, // To
+		uint64(0),     // Value
+		[]byte{},      // Input
+		big.NewInt(1), // V
+		[]byte{1},     // R
+		[]byte{1},     // S
+	}
+	data, err := Encode(input)
 	require.NoError(t, err)
 
-	exp := []byte{230, 6, 134, 9, 24, 78, 114, 160, 0, 131, 3, 0, 0, 148, 250, 60, 170, 188, 142, 239, 236, 43, 94, 40, 149, 229, 175, 191, 121, 55, 158, 114, 104, 167, 128, 128, 1, 128, 128}
+	exp := []byte{230, 6, 134, 9, 24, 78, 114, 160, 0, 131, 3, 0, 0, 148, 250, 60, 170, 188, 142, 239, 236, 43, 94, 40, 149, 229, 175, 191, 121, 55, 158, 114, 104, 167, 128, 128, 1, 1, 1}
 	require.Equal(t, exp, data)
 
-	tx := new(RawTx)
+	tx := new(pretendTx)
 	err = Decode(data, tx)
 	require.NoError(t, err)
+
+	require.Equal(t, input, tx)
+}
+
+func TestBigInts(t *testing.T) {
+	type foo struct {
+		A *big.Int
+		B *big.Int
+	}
+
+	biggun, ok := new(big.Int).SetString("234234238947234789234789234789234", 10)
+	require.True(t, ok)
+	input := &foo{
+		A: biggun,
+		B: big.NewInt(34),
+	}
+
+	bs, err := Encode(input)
+	require.NoError(t, err)
+
+	output := new(foo)
+	err = Decode(bs, output)
+	require.NoError(t, err)
+
+	require.Equal(t, input, output)
+}
+
+// Order matters for serialisation
+type TestRawTx struct {
+	Sequence                uint64 `json:"nonce"`
+	GasPrice                uint64 `json:"gasPrice"`
+	GasLimit                uint64 `json:"gasLimit"`
+	dontSerialiseUnexported uint64
+	To                      []byte   `json:"to"`
+	Amount                  *big.Int `json:"value"`
+	Data                    []byte   `json:"data"`
+	ChainID                 *big.Int `json:"chainID"`
+
+	V *big.Int
+	R *big.Int
+	S *big.Int
+}
+
+func TestEthRawTx(t *testing.T) {
+	bigly, ok := new(big.Int).SetString("234589034578907683457689234545678235789003476899", 10)
+	require.True(t, ok)
+
+	to := crypto.Address{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20}
+
+	rawTx := &TestRawTx{
+		Sequence: 1,
+		GasPrice: 1,
+		GasLimit: 1,
+		To:       to[:],
+		Amount:   big.NewInt(232),
+		Data:     []byte{1, 3, 4},
+		ChainID:  encoding.GetEthChainID("flgoo"),
+		V:        big.NewInt(272),
+		R:        bigly,
+		S:        bigly,
+	}
+
+	bs, err := Encode(rawTx)
+	require.NoError(t, err)
+
+	rawTxOut := new(TestRawTx)
+	err = Decode(bs, rawTxOut)
+	require.NoError(t, err)
+
+	require.Equal(t, rawTx, rawTxOut)
+}
+
+func TestEncodeLength(t *testing.T) {
+	// Ensure we have the minimal encoding (no leading zeros)
+	require.Equal(t, []byte{0xb8, 0xff}, encodeLength(0xff, StringOffset))
 }

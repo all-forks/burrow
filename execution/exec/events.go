@@ -2,10 +2,8 @@ package exec
 
 import (
 	"fmt"
-	"reflect"
 	"strings"
 
-	"github.com/hyperledger/burrow/event"
 	"github.com/hyperledger/burrow/event/query"
 	"github.com/hyperledger/burrow/execution/errors"
 )
@@ -40,6 +38,17 @@ func (evs *Events) Log(log *LogEvent) error {
 			EventID:   EventStringLogEvent(log.Address),
 		},
 		Log: log,
+	})
+	return nil
+}
+
+func (evs *Events) Print(print *PrintEvent) error {
+	evs.Append(&Event{
+		Header: &Header{
+			EventType: TypePrint,
+			EventID:   EventStringLogEvent(print.Address),
+		},
+		Print: print,
 	})
 	return nil
 }
@@ -92,23 +101,4 @@ func (evs Events) Filter(qry query.Query) Events {
 		}
 	}
 	return filtered
-}
-
-func (ev *Event) Get(key string) (value interface{}, ok bool) {
-	switch key {
-	case event.MessageTypeKey:
-		return eventMessageType, true
-	}
-	if ev == nil {
-		return nil, false
-	}
-	v, ok := ev.Log.Get(key)
-	if ok {
-		return v, true
-	}
-	v, ok = query.GetReflect(reflect.ValueOf(ev.Header), key)
-	if ok {
-		return v, true
-	}
-	return query.GetReflect(reflect.ValueOf(ev), key)
 }

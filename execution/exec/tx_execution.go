@@ -40,6 +40,7 @@ func (txe *TxExecution) StreamEvents() []*StreamEvent {
 		&StreamEvent{
 			BeginTx: &BeginTx{
 				TxHeader:  txe.TxHeader,
+				NumEvents: uint64(len(txe.Events)),
 				Exception: txe.Exception,
 				Result:    txe.Result,
 			},
@@ -125,6 +126,14 @@ func (txe *TxExecution) GovernAccount(governAccount *GovernAccountEvent, excepti
 		Header:        txe.Header(TypeGovernAccount, EventStringGovernAccount(governAccount.AccountUpdate.Address), exception),
 		GovernAccount: governAccount,
 	})
+}
+
+func (txe *TxExecution) Print(print *PrintEvent) error {
+	txe.Append(&Event{
+		Header: txe.Header(TypePrint, EventStringLogEvent(print.Address), nil),
+		Print:  print,
+	})
+	return nil
 }
 
 // Errors pushed to TxExecutions end up in merkle state so it is essential that they are deterministic and independent

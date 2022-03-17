@@ -10,16 +10,21 @@
 
 # ----------------------------------------------------------
 
-SHELL := /bin/bash
+SHELL := /usr/bin/env bash
 REPO := $(shell pwd)
 
 # Our own Go files containing the compiled bytecode of solidity files as a constant
 
-CI_IMAGE="hyperledger/burrow:ci"
+export CI_IMAGE=hyperledger/burrow:ci-3
 
+VERSION := $(shell scripts/version.sh)
 # Gets implicit default GOPATH if not set
 GOPATH?=$(shell go env GOPATH)
-BIN_PATH?=${GOPATH}/bin
+BIN_PATH?=$(GOPATH)/bin
+HELM_PATH?=helm/package
+HELM_PACKAGE=$(HELM_PATH)/burrow-$(VERSION).tgz
+ARCH?=linux-amd64
+PID_DIR=.pid
 
 export GO111MODULE=on
 
@@ -69,24 +74,44 @@ megacheck:
 
 # Protobuffing
 
-# Protobuf generated go files
-PROTO_FILES = $(shell find . -path ./node_modules -prune -o -type f -name '*.proto' -print)
+BURROW_TS_PATH = ./js
+PROTO_GEN_TS_PATH = ${BURROW_TS_PATH}/proto
+NODE_BIN = ${BURROW_TS_PATH}/node_modules/.bin
+
+# To access Tendermint bundled protobuf files from go module cache
+TENDERMINT_MOD?=github.com/tendermint/tendermint
+TENDERMINT_VERSION?=$(shell go list -m -f '{{ .Version }}' $(TENDERMINT_MOD))
+TENDERMINT_SRC?=$(shell go env GOMODCACHE)/$(TENDERMINT_MOD)@$(TENDERMINT_VERSION)
+TENDERMINT_PROTO?=$(TENDERMINT_SRC)/proto
+
+PROTO_FILES = $(shell find . $(TENDERMINT_PROTO) -path $(BURROW_TS_PATH) -prune -o -path '*/node_modules' -prune -o -type f -name '*.proto' -print)
 PROTO_GO_FILES = $(patsubst %.proto, %.pb.go, $(PROTO_FILES))
-PROTO_GO_FILES_REAL = $(shell find . -path ./vendor -prune -o -type f -name '*.pb.go' -print)
+PROTO_GO_FILES_REAL = $(shell find . -type f -name '*.pb.go' -print)
+PROTO_TS_FILES = $(patsubst %.proto, %.pb.ts, $(PROTO_FILES))
 
 .PHONY: protobuf
-protobuf: $(PROTO_GO_FILES) fix
+protobuf: $(PROTO_GO_FILES) $(PROTO_TS_FILES) fix
 
 # Implicit compile rule for GRPC/proto files (note since pb.go files no longer generated
 # in same directory as proto file this just regenerates everything
 %.pb.go: %.proto
-	protoc -I ./protobuf $< --gogo_out=plugins=grpc:${GOPATH}/src
+	protoc -I ./protobuf -I $(TENDERMINT_PROTO) $< --gogo_out=${GOPATH}/src --go-grpc_out=${GOPATH}/src
 
+# Note: we are not actually building any of the target .pb.ts files here, but nevermind
+# Using this: https://github.com/agreatfool/grpc_tools_node_protoc_ts
+%.pb.ts: %.proto
+	mkdir -p $(PROTO_GEN_TS_PATH)
+	$(NODE_BIN)/grpc_tools_node_protoc -I protobuf -I $(TENDERMINT_PROTO) \
+		--plugin="protoc-gen-ts=$(NODE_BIN)/protoc-gen-ts" \
+		--js_out="import_style=commonjs,binary:${PROTO_GEN_TS_PATH}" \
+		--ts_out="grpc_js:${PROTO_GEN_TS_PATH}" \
+		--grpc_out="grpc_js:${PROTO_GEN_TS_PATH}" \
+		$<
 
 .PHONY: protobuf_deps
 protobuf_deps:
 	@go get -u github.com/gogo/protobuf/protoc-gen-gogo
-#	@go get -u github.com/golang/protobuf/protoc-gen-go
+	@cd ${BURROW_TS_PATH} && yarn install --only=dev
 
 .PHONY: clean_protobuf
 clean_protobuf:
@@ -114,7 +139,7 @@ commit_hash:
 
 # build all targets in github.com/hyperledger/burrow
 .PHONY: build
-build:	check build_burrow
+build:	check build_burrow build_burrow_debug
 
 # build all targets in github.com/hyperledger/burrow with checks for race conditions
 .PHONY: build_race
@@ -123,24 +148,29 @@ build_race:	check build_race_db
 # build burrow and vent
 .PHONY: build_burrow
 build_burrow: commit_hash
-	go build -ldflags "-extldflags '-static' \
+	go build $(BURROW_BUILD_FLAGS) -ldflags "-extldflags '-static' \
 	-X github.com/hyperledger/burrow/project.commit=$(shell cat commit_hash.txt) \
 	-X github.com/hyperledger/burrow/project.date=$(shell date '+%Y-%m-%d')" \
-	-o ${REPO}/bin/burrow ./cmd/burrow
+	-o ${REPO}/bin/burrow$(BURROW_BUILD_SUFFIX) ./cmd/burrow
 
 # With the sqlite tag - enabling Vent sqlite adapter support, but building a CGO binary
 .PHONY: build_burrow_sqlite
-build_burrow_sqlite: commit_hash
-	go build -tags sqlite \
-	 -ldflags "-extldflags '-static' \
-	-X github.com/hyperledger/burrow/project.commit=$(shell cat commit_hash.txt) \
-	-X github.com/hyperledger/burrow/project.date=$(shell date -I)" \
-	-o ${REPO}/bin/burrow-vent-sqlite ./cmd/burrow
+build_burrow_sqlite: export BURROW_BUILD_SUFFIX=-vent-sqlite
+build_burrow_sqlite: export BURROW_BUILD_FLAGS=-tags sqlite
+build_burrow_sqlite:
+	$(MAKE) build_burrow
+
+# Builds a binary suitable for delve line-by-line debugging through CGO with optimisations (-N) and inling (-l) disabled
+.PHONY: build_burrow_debug
+build_burrow_debug: export BURROW_BUILD_SUFFIX=-debug
+build_burrow_debug: export BURROW_BUILD_FLAGS=-gcflags "all=-N -l"
+build_burrow_debug:
+	$(MAKE) build_burrow
 
 .PHONY: install
 install: build_burrow
 	mkdir -p ${BIN_PATH}
-	install -T ${REPO}/bin/burrow ${BIN_PATH}/burrow
+	install ${REPO}/bin/burrow ${BIN_PATH}/burrow
 
 # build burrow with checks for race conditions
 .PHONY: build_race_db
@@ -158,33 +188,41 @@ docker_build: check commit_hash
 
 # Solidity fixtures
 .PHONY: solidity
-solidity: $(patsubst %.sol, %.sol.go, $(wildcard ./execution/solidity/*.sol))
+solidity: $(patsubst %.sol, %.sol.go, $(wildcard ./execution/solidity/*.sol)) build_burrow
 
 %.sol.go: %.sol
-	@go run ./deploy/compile/solgo/main.go $^
+	@burrow compile $^
 
 # Solang fixtures
 .PHONY: solang
-solang: $(patsubst %.solang, %.solang.go, $(wildcard ./execution/wasm/*.solang))
+solang: $(patsubst %.solang, %.solang.go, $(wildcard ./execution/solidity/*.solang) $(wildcard ./execution/wasm/*.solang)) build_burrow
 
 %.solang.go: %.solang
-	@go run ./deploy/compile/solgo/main.go -wasm $^
+	@burrow compile --wasm $^
 
 # node/js
-#
-# Install dependency
-.PHONY: npm_install
-npm_install:
-	npm install
+.PHONY: yarn_install
+yarn_install:
+	@cd ${BURROW_TS_PATH} && yarn install
 
 # Test
 
 .PHONY: test_js
 test_js:
-	./tests/scripts/bin_wrapper.sh npm test
+	@cd ${BURROW_TS_PATH} && yarn test
+
+.PHONY: publish_js
+publish_js:
+	yarn --cwd js install
+	yarn --cwd js build
+	yarn --cwd js publish --access public --non-interactive --no-git-tag-version --new-version $(shell ./scripts/local_version.sh)
+
+.PHONY: clean_js
+clean_js:
+	find js -name '*.abi.ts' -exec rm '{}' ';' -print
 
 .PHONY: test
-test: check bin/solc
+test: check bin/solc bin/solang
 	@tests/scripts/bin_wrapper.sh go test ./... ${GO_TEST_ARGS}
 
 .PHONY: test_keys
@@ -198,11 +236,41 @@ test_truffle:
 .PHONY:	test_integration_vent
 test_integration_vent:
 	# Include sqlite adapter with tests - will build with CGO but that's probably fine
-	go test -v -tags 'integration sqlite' ./vent/...
+	go test -count=1 -v -tags 'integration sqlite' ./vent/...
 
-.PHONY:	test_integration_vent_postgres
-test_integration_vent_postgres:
-	docker-compose run burrow make test_integration_vent
+.PHONY:	test_integration_vent_complete
+test_integration_vent_complete:
+	docker-compose run burrow make test_integration_vent test_integration_vent_ethereum
+
+.PHONY:	test_integration_vent_ethereum
+test_integration_vent_ethereum: start_ganache
+	go test -count=1 -v -tags 'integration !sqlite ethereum' ./vent/...
+	$(MAKE) stop_ganache
+
+.PHONY:	test_integration_ethereum
+test_integration_ethereum: start_ganache
+	go test -v -tags 'integration ethereum' ./rpc/...
+	$(MAKE) stop_ganache
+
+$(PID_DIR)/ganache.pid:
+	mkdir -p $(PID_DIR)
+	yarn --cwd vent/test/eth install
+	@echo "Starting ganache in background..."
+	{ yarn --cwd vent/test/eth ganache & echo $$! > $@; }
+	@sleep 3
+	@echo "Ganache process started (pid at $@)"
+
+.PHONY: start_ganache
+start_ganache: $(PID_DIR)/ganache.pid
+
+.PHONY: stop_ganache
+stop_ganache: $(PID_DIR)/ganache.pid
+	@kill $(shell cat $<) && echo "Ganache process stopped." && rm $< || rm $<
+
+# For local debug
+.PHONY: postgres
+postgres:
+	docker run -e POSTGRES_HOST_AUTH_METHOD=trust -p 5432:5432 postgres:11-alpine
 
 .PHONY: test_restore
 test_restore:
@@ -212,10 +280,10 @@ test_restore:
 
 .PHONY: test_integration
 test_integration:
-	@go test -v -tags integration ./integration/...
+	@go test -count=1 -v -tags integration ./integration/...
 
 .PHONY: test_integration_all
-test_integration_all: test_keys test_deploy test_integration_vent_postgres test_restore test_truffle test_integration
+test_integration_all: test_keys test_deploy test_integration_vent_complete test_restore test_truffle test_integration
 
 .PHONY: test_integration_all_no_postgres
 test_integration_all_no_postgres: test_keys test_deploy test_integration_vent test_restore test_truffle test_integration
@@ -228,6 +296,11 @@ bin/solc: ./tests/scripts/deps/solc.sh
 	@mkdir -p bin
 	@tests/scripts/deps/solc.sh bin/solc
 	@touch bin/solc
+
+bin/solang: ./tests/scripts/deps/solang.sh
+	@mkdir -p bin
+	@tests/scripts/deps/solang.sh bin/solang
+	@touch bin/solang
 
 # test burrow with checks for race conditions
 .PHONY: test_race
@@ -246,7 +319,7 @@ clean:
 # Print version
 .PHONY: version
 version:
-	@go run ./project/cmd/version/main.go
+	@echo $(VERSION)
 
 # Generate full changelog of all release notes
 CHANGELOG.md: project/history.go project/cmd/changelog/main.go
@@ -267,7 +340,7 @@ tag_release: test check docs build
 
 .PHONY: build_ci_image
 build_ci_image:
-	docker build -t ${CI_IMAGE} -f ./.circleci/Dockerfile .
+	docker build -t ${CI_IMAGE} -f ./.github/Dockerfile .
 
 .PHONY: push_ci_image
 push_ci_image: build_ci_image
@@ -280,3 +353,37 @@ ready_for_pull_request: docs fix
 staticcheck:
 	go get honnef.co/go/tools/cmd/staticcheck
 	staticcheck ./...
+
+# Note --set flag currently needs helm 3 version < 3.0.3 https://github.com/helm/helm/issues/3141 - but hopefully they will reintroduce support
+bin/helm:
+	@echo Downloading helm...
+	mkdir -p bin
+	curl https://get.helm.sh/helm-v3.0.2-$(ARCH).tar.gz | tar xvzO $(ARCH)/helm > bin/helm && chmod +x bin/helm
+
+
+// TODO: reinstate
+
+.PHONY: helm_deps
+helm_deps: bin/helm
+	@bin/helm repo add --username "$(HELM_USERNAME)" --password "$(HELM_PASSWORD)" chartmuseum $(HELM_URL)
+
+.PHONY: helm_test
+helm_test: bin/helm
+	bin/helm dep up helm/burrow
+	bin/helm lint helm/burrow
+
+helm_package: $(HELM_PACKAGE)
+
+$(HELM_PACKAGE): helm_test bin/helm
+	bin/helm package helm/burrow \
+		--version "$(VERSION)" \
+		--app-version "$(VERSION)" \
+		--set "image.tag=$(VERSION)" \
+		--dependency-update \
+		--destination helm/package
+
+.PHONY: helm_push
+helm_push: helm_package
+	@echo pushing helm chart...
+	@curl -u ${CM_USERNAME}:${CM_PASSWORD} \
+		--data-binary "@$(HELM_PACKAGE)" $(CM_URL)/api/charts

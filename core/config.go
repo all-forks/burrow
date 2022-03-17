@@ -20,7 +20,7 @@ import (
 
 // LoadKeysFromConfig sets the keyClient & keyStore based on the given config
 func (kern *Kernel) LoadKeysFromConfig(conf *keys.KeysConfig) (err error) {
-	kern.keyStore = keys.NewKeyStore(conf.KeysDirectory, conf.AllowBadFilePermissions)
+	kern.keyStore = keys.NewFilesystemKeyStore(conf.KeysDirectory, conf.AllowBadFilePermissions)
 	if conf.RemoteAddress != "" {
 		kern.keyClient, err = keys.NewRemoteKeyClient(conf.RemoteAddress, kern.Logger)
 		if err != nil {
@@ -34,7 +34,7 @@ func (kern *Kernel) LoadKeysFromConfig(conf *keys.KeysConfig) (err error) {
 
 // LoadLoggerFromConfig adds a logging configuration to the kernel
 func (kern *Kernel) LoadLoggerFromConfig(conf *logconfig.LoggingConfig) error {
-	logger, err := conf.NewLogger()
+	logger, err := conf.Logger()
 	kern.SetLogger(logger)
 	return err
 }
@@ -65,8 +65,12 @@ func (kern *Kernel) LoadTendermintFromConfig(conf *config.BurrowConfig, privVal 
 
 	kern.database.Stats()
 
+	pubKey, err := privVal.GetPubKey()
+	if err != nil {
+		return err
+	}
 	kern.info = fmt.Sprintf("Burrow_%s_%s_ValidatorID:%X", project.History.CurrentVersion().String(),
-		kern.Blockchain.ChainID(), privVal.GetPubKey().Address())
+		kern.Blockchain.ChainID(), pubKey.Address())
 
 	app := abci.NewApp(kern.info, kern.Blockchain, kern.State, kern.checker, kern.committer, kern.txCodec,
 		authorizedPeersProvider, kern.Panic, kern.Logger)

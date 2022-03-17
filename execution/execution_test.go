@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hyperledger/burrow/execution/engine"
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/bcm"
@@ -33,7 +35,7 @@ import (
 	"github.com/hyperledger/burrow/txs/payload"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	dbm "github.com/tendermint/tm-db"
 	hex "github.com/tmthrgd/go-hex"
 	"golang.org/x/crypto/ripemd160"
@@ -51,10 +53,11 @@ var logger = logging.NewNoopLogger()
 var deterministicGenesis = genesis.NewDeterministicGenesis(34059836243380576)
 var testGenesisDoc, testPrivAccounts, _ = deterministicGenesis.
 	GenesisDoc(3, 1)
-var testChainID = testGenesisDoc.ChainID()
+var testChainID = testGenesisDoc.GetChainID()
 
 func TestSendFails(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[1].Permissions.Base.Set(permission.Send, true)
@@ -112,7 +115,8 @@ func TestSendFails(t *testing.T) {
 }
 
 func TestName(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Send, true)
@@ -147,7 +151,8 @@ func TestName(t *testing.T) {
 }
 
 func TestCallFails(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[1].Permissions.Base.Set(permission.Send, true)
@@ -204,7 +209,8 @@ func TestCallFails(t *testing.T) {
 }
 
 func TestSendPermission(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Send, true)  // give the 0 account permission
@@ -228,13 +234,14 @@ func TestSendPermission(t *testing.T) {
 	tx = payload.NewSendTx()
 	require.NoError(t, tx.AddInput(exe.stateCache, users[0].GetPublicKey(), 5))
 	require.NoError(t, tx.AddInput(exe.stateCache, users[1].GetPublicKey(), 5))
-	require.NoError(t, tx.AddOutput(users[2].GetAddress(), 10))
+	tx.AddOutput(users[2].GetAddress(), 10)
 	err = exe.signExecuteCommit(tx, users[:2]...)
 	require.Error(t, err)
 }
 
 func TestCallPermission(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Call, true)  // give the 0 account permission
@@ -469,7 +476,8 @@ func TestCreatePermission(t *testing.T) {
 }
 
 func TestCreateAccountPermission(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Send, true)          // give the 0 account permission
@@ -606,7 +614,8 @@ func init() {
 }
 
 func TestSNativeCALL(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Call, true)  // give the 0 account permission
@@ -753,7 +762,8 @@ func TestSNativeCALL(t *testing.T) {
 }
 
 func TestSNativeTx(t *testing.T) {
-	stateDB := dbm.NewDB("state", dbBackend, dbDir)
+	stateDB, err := dbm.NewDB("state", dbBackend, dbDir)
+	require.NoError(t, err)
 	defer stateDB.Close()
 	genDoc := newBaseGenDoc(permission.ZeroAccountPermissions, permission.ZeroAccountPermissions)
 	genDoc.Accounts[0].Permissions.Base.Set(permission.Call, true) // give the 0 account permission
@@ -1193,6 +1203,11 @@ func TestMerklePanic(t *testing.T) {
 	acc0 := getAccount(t, st, privAccounts[0].GetAddress())
 	acc1 := getAccount(t, st, privAccounts[1].GetAddress())
 
+	acc, err := st.GetAccount(acc0.Address)
+
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+
 	// SendTx.
 	{
 		tx := &payload.SendTx{
@@ -1247,7 +1262,7 @@ func TestOrigin(t *testing.T) {
 
 	// Set a contract that stores the origin address in storage at loc
 	loc := []byte{3}
-	err := native.UpdateAccount(exe.stateCache, calleeAddress, func(acc *acm.Account) error {
+	err := engine.UpdateAccount(exe.stateCache, calleeAddress, func(acc *acm.Account) error {
 		acc.EVMCode = bc.MustSplice(ORIGIN, PUSH1, loc, SSTORE)
 		return nil
 	})
@@ -1455,8 +1470,45 @@ func TestSelfDestruct(t *testing.T) {
 	require.Nil(t, accRemoved, "Expected account to be removed")
 }
 
-//-------------------------------------------------------------------------------------
-// helpers
+func TestPredecessorTracking(t *testing.T) {
+	st, signers := makeGenesisState(3, 1)
+	exe := makeExecutor(st)
+
+	mkTx := func() *payload.SendTx {
+		tx := payload.NewSendTx()
+		err := tx.AddInput(st, signers[0].GetPublicKey(), 100)
+		require.NoError(t, err)
+		tx.AddOutput(signers[1].GetAddress(), 100)
+		require.NoError(t, err)
+		return tx
+	}
+
+	// Empty block - predecessor does not advance
+	_, err := exe.Commit(nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), exe.block.PredecessorHeight)
+	require.Equal(t, uint64(2), exe.block.Height)
+
+	// Tx in block - predecessor becomes this block
+	err = exe.signExecuteCommit(mkTx(), signers[0])
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), exe.block.PredecessorHeight)
+	require.Equal(t, uint64(3), exe.block.Height)
+
+	//  Empty again
+	_, err = exe.Commit(nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), exe.block.PredecessorHeight)
+	require.Equal(t, uint64(4), exe.block.Height)
+
+	// Non-empty - back to consecutive predecessor
+	err = exe.signExecuteCommit(mkTx(), signers[0])
+	require.NoError(t, err)
+	require.Equal(t, uint64(4), exe.block.PredecessorHeight)
+	require.Equal(t, uint64(5), exe.block.Height)
+}
+
+// Helpers
 
 func makeUsers(n int) []acm.AddressableSigner {
 	users := make([]acm.AddressableSigner, n)
@@ -1465,12 +1517,6 @@ func makeUsers(n int) []acm.AddressableSigner {
 		users[i] = acm.GeneratePrivateAccountFromSecret(secret)
 	}
 	return users
-}
-
-func newBlockchain(genesisDoc *genesis.GenesisDoc) *bcm.Blockchain {
-	testDB := dbm.NewDB("test", dbBackend, ".")
-	blockchain, _, _ := bcm.LoadOrNewBlockchain(testDB, genesisDoc, logger)
-	return blockchain
 }
 
 func newBaseGenDoc(globalPerm, accountPerm permission.AccountPermissions) genesis.GenesisDoc {
@@ -1539,15 +1585,23 @@ type testExecutor struct {
 }
 
 func makeExecutor(state *state.State) *testExecutor {
-	blockchain := newBlockchain(testGenesisDoc)
-	err := blockchain.CommitBlockAtHeight(time.Now(), []byte("hashily"), state.Hash(), HeightAtVersion(state.Version()))
+	testDB, err := dbm.NewDB("test", dbBackend, ".")
+	if err != nil {
+		panic(err)
+	}
+	blockchain, _, _ := bcm.LoadOrNewBlockchain(testDB, testGenesisDoc, logger)
+	err = blockchain.CommitBlockAtHeight(time.Now(), []byte("hashily"), state.Hash(), HeightAtVersion(state.Version()))
+	if err != nil {
+		panic(err)
+	}
+	executor, err := newExecutor("makeExecutorCache", true, ParamsFromGenesis(testGenesisDoc), state,
+		blockchain, nil, logger)
 	if err != nil {
 		panic(err)
 	}
 	return &testExecutor{
 		Blockchain: blockchain,
-		executor: newExecutor("makeExecutorCache", true, ParamsFromGenesis(testGenesisDoc), state,
-			blockchain, nil, logger),
+		executor:   executor,
 	}
 }
 
@@ -1557,7 +1611,7 @@ func copyState(t testing.TB, st *state.State) *state.State {
 	return cpy
 }
 
-func (te *testExecutor) Commit(header *types.Header) ([]byte, error) {
+func (te *testExecutor) Commit(header *tmproto.Header) ([]byte, error) {
 	appHash, err := te.executor.Commit(header)
 	if err != nil {
 		return nil, err

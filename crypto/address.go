@@ -16,10 +16,10 @@ type Addressable interface {
 	// Get the 20 byte EVM address of this account
 	GetAddress() Address
 	// Public key from which the Address is derived
-	GetPublicKey() PublicKey
+	GetPublicKey() *PublicKey
 }
 
-func NewAddressable(publicKey PublicKey) Addressable {
+func NewAddressable(publicKey *PublicKey) Addressable {
 	return &memoizedAddressable{
 		address:   publicKey.GetAddress(),
 		publicKey: publicKey,
@@ -27,11 +27,11 @@ func NewAddressable(publicKey PublicKey) Addressable {
 }
 
 type memoizedAddressable struct {
-	publicKey PublicKey
+	publicKey *PublicKey
 	address   Address
 }
 
-func (a *memoizedAddressable) GetPublicKey() PublicKey {
+func (a *memoizedAddressable) GetPublicKey() *PublicKey {
 	return a.publicKey
 }
 
@@ -158,7 +158,6 @@ func (address *Address) UnmarshalText(text []byte) error {
 
 func (address Address) MarshalText() ([]byte, error) {
 	return ([]byte)(hex.EncodeUpperToString(address[:])), nil
-
 }
 
 // Gogo proto support
@@ -196,7 +195,7 @@ func Nonce(caller Address, nonce []byte) []byte {
 	return hasher.Sum(nil)
 }
 
-// Obtain a nearly unique nonce based on a montonic account sequence number
+// Obtain a nearly unique nonce based on a monotonic account sequence number
 func SequenceNonce(address Address, sequence uint64) []byte {
 	bs := make([]byte, 8)
 	bin.BigEndian.PutUint64(bs, sequence)

@@ -9,6 +9,8 @@ import (
 	"runtime/debug"
 	"sync"
 
+	"github.com/hyperledger/burrow/execution/vms"
+
 	"github.com/hyperledger/burrow/acm"
 	"github.com/hyperledger/burrow/acm/acmstate"
 	"github.com/hyperledger/burrow/acm/validator"
@@ -18,7 +20,6 @@ import (
 	"github.com/hyperledger/burrow/execution/contexts"
 	"github.com/hyperledger/burrow/execution/engine"
 	"github.com/hyperledger/burrow/execution/errors"
-	"github.com/hyperledger/burrow/execution/evm"
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/hyperledger/burrow/execution/names"
 	"github.com/hyperledger/burrow/execution/proposal"
@@ -30,7 +31,7 @@ import (
 	"github.com/hyperledger/burrow/permission"
 	"github.com/hyperledger/burrow/txs"
 	"github.com/hyperledger/burrow/txs/payload"
-	abciTypes "github.com/tendermint/tendermint/abci/types"
+	"github.com/tendermint/tendermint/proto/tendermint/types"
 )
 
 type Executor interface {
@@ -45,6 +46,7 @@ func (f ExecutorFunc) Execute(txEnv *txs.Envelope) (*exec.TxExecution, error) {
 
 type ExecutorState interface {
 	Update(updater func(ws state.Updatable) error) (hash []byte, version int64, err error)
+	LastStoredHeight() (uint64, error)
 	acmstate.IterableReader
 	acmstate.MetadataReader
 	names.Reader
@@ -68,7 +70,7 @@ type BatchExecutor interface {
 type BatchCommitter interface {
 	BatchExecutor
 	// Commit execution results to underlying State and provide opportunity to mutate state before it is saved
-	Commit(header *abciTypes.Header) (stateHash []byte, err error)
+	Commit(header *types.Header) (stateHash []byte, err error)
 }
 
 type executor struct {
@@ -85,7 +87,7 @@ type executor struct {
 	emitter          *event.Emitter
 	block            *exec.BlockExecution
 	logger           *logging.Logger
-	vmOptions        evm.Options
+	vmOptions        engine.Options
 	contexts         map[payload.Type]contexts.Context
 }
 
@@ -96,7 +98,7 @@ type Params struct {
 
 func ParamsFromGenesis(genesisDoc *genesis.GenesisDoc) Params {
 	return Params{
-		ChainID:           genesisDoc.ChainID(),
+		ChainID:           genesisDoc.GetChainID(),
 		ProposalThreshold: genesisDoc.Params.ProposalThreshold,
 	}
 }
@@ -105,14 +107,14 @@ var _ BatchExecutor = (*executor)(nil)
 
 // Wraps a cache of what is variously known as the 'check cache' and 'mempool'
 func NewBatchChecker(backend ExecutorState, params Params, blockchain engine.Blockchain, logger *logging.Logger,
-	options ...Option) BatchExecutor {
+	options ...Option) (BatchExecutor, error) {
 
 	return newExecutor("CheckCache", false, params, backend, blockchain, nil,
 		logger.WithScope("NewBatchExecutor"), options...)
 }
 
 func NewBatchCommitter(backend ExecutorState, params Params, blockchain engine.Blockchain, emitter *event.Emitter,
-	logger *logging.Logger, options ...Option) BatchCommitter {
+	logger *logging.Logger, options ...Option) (BatchCommitter, error) {
 
 	return newExecutor("CommitCache", true, params, backend, blockchain, emitter,
 		logger.WithScope("NewBatchCommitter"), options...)
@@ -120,7 +122,12 @@ func NewBatchCommitter(backend ExecutorState, params Params, blockchain engine.B
 }
 
 func newExecutor(name string, runCall bool, params Params, backend ExecutorState, blockchain engine.Blockchain,
-	emitter *event.Emitter, logger *logging.Logger, options ...Option) *executor {
+	emitter *event.Emitter, logger *logging.Logger, options ...Option) (*executor, error) {
+	// We need to track the last block stored in state
+	predecessor, err := backend.LastStoredHeight()
+	if err != nil {
+		return nil, err
+	}
 	exe := &executor{
 		runCall:          runCall,
 		params:           params,
@@ -133,7 +140,8 @@ func newExecutor(name string, runCall bool, params Params, backend ExecutorState
 		validatorCache:   validator.NewCache(backend),
 		emitter:          emitter,
 		block: &exec.BlockExecution{
-			Height: blockchain.LastBlockHeight() + 1,
+			Height:            blockchain.LastBlockHeight() + 1,
+			PredecessorHeight: predecessor,
 		},
 		logger: logger.With(structure.ComponentKey, "Executor"),
 	}
@@ -143,7 +151,8 @@ func newExecutor(name string, runCall bool, params Params, backend ExecutorState
 
 	baseContexts := map[payload.Type]contexts.Context{
 		payload.TypeCall: &contexts.CallContext{
-			EVM:           evm.New(exe.vmOptions),
+			// TODO: expose WASM options to config
+			VMS:           vms.NewConnectedVirtualMachines(exe.vmOptions),
 			Blockchain:    blockchain,
 			State:         exe.stateCache,
 			MetadataState: exe.metadataCache,
@@ -202,7 +211,7 @@ func newExecutor(name string, runCall bool, params Params, backend ExecutorState
 		exe.contexts[k] = v
 	}
 
-	return exe
+	return exe, nil
 }
 
 func (exe *executor) AddContext(ty payload.Type, ctx contexts.Context) *executor {
@@ -276,7 +285,7 @@ func (exe *executor) validateInputsAndStorePublicKeys(txEnv *txs.Envelope) error
 	for s, in := range txEnv.Tx.GetInputs() {
 		err := exe.updateSignatory(txEnv.Signatories[s])
 		if err != nil {
-			return fmt.Errorf("failed to update public key for input %X: %v", in.Address, err)
+			return fmt.Errorf("failed to update public key for input %v: %w", in.Address, err)
 		}
 		acc, err := exe.stateCache.GetAccount(in.Address)
 		if err != nil {
@@ -291,12 +300,12 @@ func (exe *executor) validateInputsAndStorePublicKeys(txEnv *txs.Envelope) error
 				acc.GetAddress())
 		}
 		// Check sequences
-		if acc.Sequence+1 != uint64(in.Sequence) {
+		if acc.Sequence+1 != in.Sequence {
 			return errors.Errorf(errors.Codes.InvalidSequence, "Error invalid sequence in input %v: input has sequence %d, but account has sequence %d, "+
 				"so expected input to have sequence %d", in, in.Sequence, acc.Sequence, acc.Sequence+1)
 		}
 		// Check amount
-		if acc.Balance < uint64(in.Amount) {
+		if txEnv.Tx.Type() != payload.TypeUnbond && acc.Balance < in.Amount {
 			return errors.Codes.InsufficientFunds
 		}
 		// Check for Input permission
@@ -329,13 +338,13 @@ func (exe *executor) updateSignatory(sig txs.Signatory) error {
 		return fmt.Errorf("unexpected mismatch between address %v and supplied public key %v",
 			acc.Address, sig.PublicKey)
 	}
-	acc.PublicKey = *sig.PublicKey
+	acc.PublicKey = sig.PublicKey
 	return exe.stateCache.UpdateAccount(acc)
 }
 
 // Commit the current state - optionally pass in the tendermint ABCI header for that to be included with the BeginBlock
 // StreamEvent
-func (exe *executor) Commit(header *abciTypes.Header) (stateHash []byte, err error) {
+func (exe *executor) Commit(header *types.Header) (stateHash []byte, err error) {
 	// The write lock to the executor is controlled by the caller (e.g. abci.App) so we do not acquire it here to avoid
 	// deadlock
 	defer func() {
@@ -355,27 +364,27 @@ func (exe *executor) Commit(header *abciTypes.Header) (stateHash []byte, err err
 	// that nothing in the downstream commit process could have failed. At worst we go back one block.
 	hash, version, err := exe.state.Update(func(ws state.Updatable) error {
 		// flush the caches
-		err := exe.stateCache.Flush(ws, exe.state)
+		err := exe.stateCache.Sync(ws)
 		if err != nil {
 			return err
 		}
-		err = exe.metadataCache.Flush(ws, exe.state)
+		err = exe.metadataCache.Sync(ws)
 		if err != nil {
 			return err
 		}
-		err = exe.nameRegCache.Flush(ws, exe.state)
+		err = exe.nameRegCache.Sync(ws)
 		if err != nil {
 			return err
 		}
-		err = exe.nodeRegCache.Flush(ws, exe.state)
+		err = exe.nodeRegCache.Sync(ws)
 		if err != nil {
 			return err
 		}
-		err = exe.proposalRegCache.Flush(ws, exe.state)
+		err = exe.proposalRegCache.Sync(ws)
 		if err != nil {
 			return err
 		}
-		err = exe.validatorCache.Flush(ws, exe.state)
+		err = exe.validatorCache.Sync(ws)
 		if err != nil {
 			return err
 		}
@@ -388,6 +397,12 @@ func (exe *executor) Commit(header *abciTypes.Header) (stateHash []byte, err err
 	if err != nil {
 		return nil, err
 	}
+	// Complete flushing of caches by resetting them to the state we have just committed
+	err = exe.Reset()
+	if err != nil {
+		return nil, err
+	}
+
 	expectedHeight := HeightAtVersion(version)
 	if expectedHeight != height {
 		return nil, fmt.Errorf("expected height at state tree version %d is %d but actual height is %d",
@@ -401,7 +416,9 @@ func (exe *executor) Commit(header *abciTypes.Header) (stateHash []byte, err err
 func (exe *executor) Reset() error {
 	// As with Commit() we do not take the write lock here
 	exe.stateCache.Reset(exe.state)
+	exe.metadataCache.Reset(exe.state)
 	exe.nameRegCache.Reset(exe.state)
+	exe.nodeRegCache.Reset(exe.state)
 	exe.proposalRegCache.Reset(exe.state)
 	exe.validatorCache.Reset(exe.state)
 	return nil
@@ -430,7 +447,7 @@ func (exe *executor) PendingValidators() validator.IterableReader {
 	return exe.validatorCache.Delta
 }
 
-func (exe *executor) finaliseBlockExecution(header *abciTypes.Header) (*exec.BlockExecution, error) {
+func (exe *executor) finaliseBlockExecution(header *types.Header) (*exec.BlockExecution, error) {
 	if header != nil && uint64(header.Height) != exe.block.Height {
 		return nil, fmt.Errorf("trying to finalise block execution with height %v but passed Tendermint"+
 			"block header at height %v", exe.block.Height, header.Height)
@@ -439,9 +456,18 @@ func (exe *executor) finaliseBlockExecution(header *abciTypes.Header) (*exec.Blo
 	be := exe.block
 	// Set the header when provided
 	be.Header = header
+	// My default the predecessor of the next block is the is the predecessor of the current block
+	// (in case the current block has no transactions - since we do not currently store empty blocks in state, see
+	// /execution/state/events.go)
+	predecessor := be.PredecessorHeight
+	if len(be.TxExecutions) > 0 {
+		// If the current block has transactions then it will be the predecessor of the next block
+		predecessor = be.Height
+	}
 	// Start new execution for the next height
 	exe.block = &exec.BlockExecution{
-		Height: exe.block.Height + 1,
+		Height:            exe.block.Height + 1,
+		PredecessorHeight: predecessor,
 	}
 	return be, nil
 }

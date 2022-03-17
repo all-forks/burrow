@@ -26,7 +26,7 @@ func (tx *SendTx) String() string {
 	return fmt.Sprintf("SendTx{%v -> %v}", tx.Inputs, tx.Outputs)
 }
 
-func (tx *SendTx) AddInput(st acmstate.AccountGetter, pubkey crypto.PublicKey, amt uint64) error {
+func (tx *SendTx) AddInput(st acmstate.AccountGetter, pubkey *crypto.PublicKey, amt uint64) error {
 	addr := pubkey.GetAddress()
 	acc, err := st.GetAccount(addr)
 	if err != nil {
@@ -38,7 +38,7 @@ func (tx *SendTx) AddInput(st acmstate.AccountGetter, pubkey crypto.PublicKey, a
 	return tx.AddInputWithSequence(pubkey, amt, acc.Sequence+1)
 }
 
-func (tx *SendTx) AddInputWithSequence(pubkey crypto.PublicKey, amt uint64, sequence uint64) error {
+func (tx *SendTx) AddInputWithSequence(pubkey *crypto.PublicKey, amt uint64, sequence uint64) error {
 	addr := pubkey.GetAddress()
 	tx.Inputs = append(tx.Inputs, &TxInput{
 		Address:  addr,
@@ -48,12 +48,11 @@ func (tx *SendTx) AddInputWithSequence(pubkey crypto.PublicKey, amt uint64, sequ
 	return nil
 }
 
-func (tx *SendTx) AddOutput(addr crypto.Address, amt uint64) error {
+func (tx *SendTx) AddOutput(addr crypto.Address, amt uint64) {
 	tx.Outputs = append(tx.Outputs, &TxOutput{
 		Address: addr,
 		Amount:  amt,
 	})
-	return nil
 }
 
 func (tx *SendTx) Any() *Any {

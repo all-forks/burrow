@@ -24,7 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tmcore "github.com/tendermint/tendermint/rpc/core"
-	rpctypes "github.com/tendermint/tendermint/rpc/lib/types"
+	"github.com/tendermint/tendermint/rpc/jsonrpc/types"
 )
 
 func TestGovernance(t *testing.T) {
@@ -90,8 +90,9 @@ func TestGovernance(t *testing.T) {
 			err = rpctest.WaitNBlocks(ecli, 6)
 			require.NoError(t, err)
 			height := int64(genesisKernels[0].Blockchain.LastBlockHeight())
-			genesisKernels[0].Node.ConfigureRPC()
-			tmVals, err := tmcore.Validators(&rpctypes.Context{}, &height)
+			err = genesisKernels[0].Node.ConfigureRPC()
+			require.NoError(t, err)
+			tmVals, err := tmcore.Validators(&types.Context{}, &height, nil, nil)
 			require.NoError(t, err)
 			vsOut = validator.NewTrimSet()
 
@@ -220,17 +221,17 @@ func TestGovernance(t *testing.T) {
 			power := uint64(2445)
 			tx := payload.UpdateAccountTx(inputAddress, &spec.TemplateAccount{
 				Address:   &address,
-				PublicKey: &publicKey,
+				PublicKey: publicKey,
 				Amounts:   balance.New().Power(power),
 			})
 
 			setSequence(t, qcli, tx)
-			_, err := localSignAndBroadcastSync(t, tcli1, genesisDoc.ChainID(), genesisAccounts[0], tx)
+			_, err := localSignAndBroadcastSync(t, tcli1, genesisDoc.GetChainID(), genesisAccounts[0], tx)
 			require.NoError(t, err)
 
 			// Make it a different Tx hash so it can enter cache but keep sequence number
 			tx.AccountUpdates[0].Amounts = balance.New().Power(power).Native(1)
-			_, err = localSignAndBroadcastSync(t, tcli2, genesisDoc.ChainID(), genesisAccounts[0], tx)
+			_, err = localSignAndBroadcastSync(t, tcli2, genesisDoc.GetChainID(), genesisAccounts[0], tx)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "invalid sequence")
 		})
@@ -251,5 +252,5 @@ func TestGovernance(t *testing.T) {
 	// created by github.com/hyperledger/burrow/vendor/github.com/tendermint/tendermint/consensus.(*ConsensusReactor).AddPeer
 	// /home/sean/go/src/github.com/hyperledger/burrow/vendor/github.com/tendermint/tendermint/consensus/reactor.go:171 +0x23a
 
-	time.Sleep(4 * time.Second)
+	time.Sleep(20 * time.Second)
 }

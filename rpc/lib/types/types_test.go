@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 )
@@ -29,20 +31,36 @@ func TestResponses(t *testing.T) {
 	g := RPCMethodNotFoundError("2")
 	h, _ := json.Marshal(g)
 	i := `{"jsonrpc":"2.0","id":"2","error":{"code":-32601,"message":"Method Not Found"}}`
-	assert.Equal(string(h), string(i))
+	assert.Equal(i, string(h))
+}
+
+func TestRequests(t *testing.T) {
+	// Make sure empty params omitted
+	req := NewRPCRequest("foo", "NoParamsMethod", nil)
+	bs, err := json.Marshal(req)
+	require.NoError(t, err)
+	require.Equal(t, `{"jsonrpc":"2.0","id":"foo","method":"NoParamsMethod"}`, string(bs))
 }
 
 func TestRPCError(t *testing.T) {
-	assert.Equal(t, "RPC error 12 - Badness: One worse than a code 11",
+	assert.Equal(t, `Unknown Error 12 - Badness: "One worse than a code 11"`,
 		fmt.Sprintf("%v", &RPCError{
 			Code:    12,
 			Message: "Badness",
-			Data:    "One worse than a code 11",
+			Data:    raw("One worse than a code 11"),
 		}))
 
-	assert.Equal(t, "RPC error 12 - Badness",
+	assert.Equal(t, "Unknown Error 12 - Badness",
 		fmt.Sprintf("%v", &RPCError{
 			Code:    12,
 			Message: "Badness",
 		}))
+}
+
+func raw(v interface{}) json.RawMessage {
+	bs, err := json.MarshalIndent(v, "", "\t")
+	if err != nil {
+		panic(err)
+	}
+	return bs
 }

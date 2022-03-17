@@ -7,6 +7,7 @@ import (
 	fmt "fmt"
 	io "io"
 	math "math"
+	math_bits "math/bits"
 
 	_ "github.com/gogo/protobuf/gogoproto"
 	proto "github.com/gogo/protobuf/proto"
@@ -24,7 +25,7 @@ var _ = math.Inf
 // is compatible with the proto package it is being compiled against.
 // A compilation error at this line likely means your copy of the
 // proto package needs to be updated.
-const _ = proto.GoGoProtoPackageIsVersion2 // please upgrade the proto package
+const _ = proto.GoGoProtoPackageIsVersion3 // please upgrade the proto package
 
 // NodeIdentity stores and establishes a binding between 4 different types of identifiers, a human readable name,
 // a advertised network address, a p2p station-to-station key, and a validator key. Updates must be signed
@@ -38,10 +39,10 @@ type NodeIdentity struct {
 	TendermintNodeID github_com_hyperledger_burrow_crypto.Address `protobuf:"bytes,3,opt,name=TendermintNodeID,proto3,customtype=github.com/hyperledger/burrow/crypto.Address" json:"TendermintNodeID"`
 	// The public key that this node will validate with if it becomes a validator
 	// (use this to create a binding between p2p node ID and validator)
-	ValidatorPublicKey   github_com_hyperledger_burrow_crypto.PublicKey `protobuf:"bytes,4,opt,name=ValidatorPublicKey,proto3,customtype=github.com/hyperledger/burrow/crypto.PublicKey" json:"ValidatorPublicKey"`
-	XXX_NoUnkeyedLiteral struct{}                                       `json:"-"`
-	XXX_unrecognized     []byte                                         `json:"-"`
-	XXX_sizecache        int32                                          `json:"-"`
+	ValidatorPublicKey   *github_com_hyperledger_burrow_crypto.PublicKey `protobuf:"bytes,4,opt,name=ValidatorPublicKey,proto3,customtype=github.com/hyperledger/burrow/crypto.PublicKey" json:"ValidatorPublicKey,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                                        `json:"-"`
+	XXX_unrecognized     []byte                                          `json:"-"`
+	XXX_sizecache        int32                                           `json:"-"`
 }
 
 func (m *NodeIdentity) Reset()      { *m = NodeIdentity{} }
@@ -54,7 +55,7 @@ func (m *NodeIdentity) XXX_Unmarshal(b []byte) error {
 }
 func (m *NodeIdentity) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	b = b[:cap(b)]
-	n, err := m.MarshalTo(b)
+	n, err := m.MarshalToSizedBuffer(b)
 	if err != nil {
 		return nil, err
 	}
@@ -98,32 +99,31 @@ func init() { proto.RegisterFile("registry.proto", fileDescriptor_41af05d40a6155
 func init() { golang_proto.RegisterFile("registry.proto", fileDescriptor_41af05d40a615591) }
 
 var fileDescriptor_41af05d40a615591 = []byte{
-	// 296 bytes of a gzipped FileDescriptorProto
+	// 288 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x2b, 0x4a, 0x4d, 0xcf,
-	0x2c, 0x2e, 0x29, 0xaa, 0xd4, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x80, 0xf1, 0xa5, 0x74,
-	0xd3, 0x33, 0x4b, 0x32, 0x4a, 0x93, 0xf4, 0x92, 0xf3, 0x73, 0xf5, 0xd3, 0xf3, 0xd3, 0xf3, 0xf5,
-	0xc1, 0x0a, 0x92, 0x4a, 0xd3, 0xc0, 0x3c, 0x30, 0x07, 0xcc, 0x82, 0x68, 0x54, 0x5a, 0xc0, 0xc4,
-	0xc5, 0xe3, 0x97, 0x9f, 0x92, 0xea, 0x99, 0x92, 0x9a, 0x57, 0x92, 0x59, 0x52, 0x29, 0x24, 0xc1,
-	0xc5, 0xee, 0x9b, 0x9f, 0x97, 0x99, 0x9d, 0x5a, 0x24, 0xc1, 0xa8, 0xc0, 0xa8, 0xc1, 0x19, 0x04,
-	0xe3, 0x0a, 0xa9, 0x71, 0xf1, 0xf9, 0xa5, 0x96, 0x94, 0xe7, 0x17, 0x65, 0x3b, 0xa6, 0xa4, 0x14,
-	0xa5, 0x16, 0x17, 0x4b, 0x30, 0x81, 0x15, 0xa0, 0x89, 0x0a, 0x25, 0x70, 0x09, 0x84, 0xa4, 0xe6,
-	0xa5, 0xa4, 0x16, 0xe5, 0x66, 0xe6, 0x95, 0x80, 0xcd, 0x76, 0x91, 0x60, 0x56, 0x60, 0xd4, 0xe0,
-	0x71, 0x32, 0x39, 0x71, 0x4f, 0x9e, 0xe1, 0xd6, 0x3d, 0x79, 0x1d, 0x24, 0x37, 0x66, 0x54, 0x16,
-	0xa4, 0x16, 0xe5, 0xa4, 0xa6, 0xa4, 0xa7, 0x16, 0xe9, 0x27, 0x95, 0x16, 0x15, 0xe5, 0x97, 0xeb,
-	0x27, 0x17, 0x55, 0x16, 0x94, 0xe4, 0xeb, 0x41, 0xcd, 0x0b, 0xc2, 0x30, 0x4d, 0x28, 0x8d, 0x4b,
-	0x28, 0x2c, 0x31, 0x27, 0x33, 0x25, 0xb1, 0x24, 0xbf, 0x28, 0xa0, 0x34, 0x29, 0x27, 0x33, 0xd9,
-	0x3b, 0xb5, 0x52, 0x82, 0x05, 0x6c, 0x87, 0x19, 0xd4, 0x0e, 0x3d, 0xa2, 0xec, 0x80, 0xeb, 0x0e,
-	0xc2, 0x62, 0xa2, 0x15, 0xcb, 0x8c, 0x05, 0xf2, 0x0c, 0x4e, 0x5e, 0x27, 0x1e, 0xc9, 0x31, 0x5e,
-	0x78, 0x24, 0xc7, 0x78, 0xe3, 0x91, 0x1c, 0xe3, 0x83, 0x47, 0x72, 0x8c, 0x07, 0x1e, 0xcb, 0x31,
-	0x9e, 0x78, 0x2c, 0xc7, 0x18, 0x65, 0x80, 0xdf, 0x8e, 0xd4, 0x8a, 0xd4, 0xe4, 0xd2, 0x92, 0xcc,
-	0xfc, 0x3c, 0x7d, 0x58, 0xec, 0x24, 0xb1, 0x81, 0x43, 0xdd, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff,
-	0xbe, 0x93, 0xeb, 0x76, 0xc0, 0x01, 0x00, 0x00,
+	0x2c, 0x2e, 0x29, 0xaa, 0xd4, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x80, 0xf1, 0xa5, 0x44,
+	0xd2, 0xf3, 0xd3, 0xf3, 0xc1, 0x82, 0xfa, 0x20, 0x16, 0x44, 0x5e, 0x69, 0x0e, 0x13, 0x17, 0x8f,
+	0x5f, 0x7e, 0x4a, 0xaa, 0x67, 0x4a, 0x6a, 0x5e, 0x49, 0x66, 0x49, 0xa5, 0x90, 0x04, 0x17, 0xbb,
+	0x6f, 0x7e, 0x5e, 0x66, 0x76, 0x6a, 0x91, 0x04, 0xa3, 0x02, 0xa3, 0x06, 0x67, 0x10, 0x8c, 0x2b,
+	0xa4, 0xc6, 0xc5, 0xe7, 0x97, 0x5a, 0x52, 0x9e, 0x5f, 0x94, 0xed, 0x98, 0x92, 0x52, 0x94, 0x5a,
+	0x5c, 0x2c, 0xc1, 0x04, 0x56, 0x80, 0x26, 0x2a, 0x94, 0xc0, 0x25, 0x10, 0x92, 0x9a, 0x97, 0x92,
+	0x5a, 0x94, 0x9b, 0x99, 0x57, 0x02, 0x36, 0xdb, 0x45, 0x82, 0x59, 0x81, 0x51, 0x83, 0xc7, 0xc9,
+	0xe4, 0xc4, 0x3d, 0x79, 0x86, 0x5b, 0xf7, 0xe4, 0x75, 0xd2, 0x33, 0x4b, 0x32, 0x4a, 0x93, 0xf4,
+	0x92, 0xf3, 0x73, 0xf5, 0x33, 0x2a, 0x0b, 0x52, 0x8b, 0x72, 0x52, 0x53, 0xd2, 0x53, 0x8b, 0xf4,
+	0x93, 0x4a, 0x8b, 0x8a, 0xf2, 0xcb, 0xf5, 0x93, 0x8b, 0x2a, 0x0b, 0x4a, 0xf2, 0xf5, 0xa0, 0xe6,
+	0x05, 0x61, 0x98, 0x26, 0x94, 0xc4, 0x25, 0x14, 0x96, 0x98, 0x93, 0x99, 0x92, 0x58, 0x92, 0x5f,
+	0x14, 0x50, 0x9a, 0x94, 0x93, 0x99, 0xec, 0x9d, 0x5a, 0x29, 0xc1, 0x02, 0xb6, 0xc3, 0xe8, 0xd6,
+	0x3d, 0x79, 0x3d, 0xa2, 0xcc, 0x87, 0xeb, 0x0c, 0xc2, 0x62, 0x9a, 0x15, 0xcb, 0x8c, 0x05, 0xf2,
+	0x0c, 0x4e, 0x5e, 0x27, 0x1e, 0xc9, 0x31, 0x5e, 0x78, 0x24, 0xc7, 0x78, 0xe3, 0x91, 0x1c, 0xe3,
+	0x83, 0x47, 0x72, 0x8c, 0x07, 0x1e, 0xcb, 0x31, 0x9e, 0x78, 0x2c, 0xc7, 0x18, 0x65, 0x80, 0xdf,
+	0x8e, 0xd4, 0x8a, 0xd4, 0xe4, 0xd2, 0x92, 0xcc, 0xfc, 0x3c, 0x7d, 0x58, 0x04, 0x24, 0xb1, 0x81,
+	0x43, 0xdc, 0x18, 0x10, 0x00, 0x00, 0xff, 0xff, 0x5d, 0x64, 0xf6, 0x36, 0xa3, 0x01, 0x00, 0x00,
 }
 
 func (m *NodeIdentity) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
-	n, err := m.MarshalTo(dAtA)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
 	if err != nil {
 		return nil, err
 	}
@@ -131,52 +131,68 @@ func (m *NodeIdentity) Marshal() (dAtA []byte, err error) {
 }
 
 func (m *NodeIdentity) MarshalTo(dAtA []byte) (int, error) {
-	var i int
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *NodeIdentity) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
 	_ = i
 	var l int
 	_ = l
-	if len(m.Moniker) > 0 {
-		dAtA[i] = 0xa
-		i++
-		i = encodeVarintRegistry(dAtA, i, uint64(len(m.Moniker)))
-		i += copy(dAtA[i:], m.Moniker)
-	}
-	if len(m.NetworkAddress) > 0 {
-		dAtA[i] = 0x12
-		i++
-		i = encodeVarintRegistry(dAtA, i, uint64(len(m.NetworkAddress)))
-		i += copy(dAtA[i:], m.NetworkAddress)
-	}
-	dAtA[i] = 0x1a
-	i++
-	i = encodeVarintRegistry(dAtA, i, uint64(m.TendermintNodeID.Size()))
-	n1, err := m.TendermintNodeID.MarshalTo(dAtA[i:])
-	if err != nil {
-		return 0, err
-	}
-	i += n1
-	dAtA[i] = 0x22
-	i++
-	i = encodeVarintRegistry(dAtA, i, uint64(m.ValidatorPublicKey.Size()))
-	n2, err := m.ValidatorPublicKey.MarshalTo(dAtA[i:])
-	if err != nil {
-		return 0, err
-	}
-	i += n2
 	if m.XXX_unrecognized != nil {
-		i += copy(dAtA[i:], m.XXX_unrecognized)
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
 	}
-	return i, nil
+	if m.ValidatorPublicKey != nil {
+		{
+			size := m.ValidatorPublicKey.Size()
+			i -= size
+			if _, err := m.ValidatorPublicKey.MarshalTo(dAtA[i:]); err != nil {
+				return 0, err
+			}
+			i = encodeVarintRegistry(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x22
+	}
+	{
+		size := m.TendermintNodeID.Size()
+		i -= size
+		if _, err := m.TendermintNodeID.MarshalTo(dAtA[i:]); err != nil {
+			return 0, err
+		}
+		i = encodeVarintRegistry(dAtA, i, uint64(size))
+	}
+	i--
+	dAtA[i] = 0x1a
+	if len(m.NetworkAddress) > 0 {
+		i -= len(m.NetworkAddress)
+		copy(dAtA[i:], m.NetworkAddress)
+		i = encodeVarintRegistry(dAtA, i, uint64(len(m.NetworkAddress)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if len(m.Moniker) > 0 {
+		i -= len(m.Moniker)
+		copy(dAtA[i:], m.Moniker)
+		i = encodeVarintRegistry(dAtA, i, uint64(len(m.Moniker)))
+		i--
+		dAtA[i] = 0xa
+	}
+	return len(dAtA) - i, nil
 }
 
 func encodeVarintRegistry(dAtA []byte, offset int, v uint64) int {
+	offset -= sovRegistry(v)
+	base := offset
 	for v >= 1<<7 {
 		dAtA[offset] = uint8(v&0x7f | 0x80)
 		v >>= 7
 		offset++
 	}
 	dAtA[offset] = uint8(v)
-	return offset + 1
+	return base
 }
 func (m *NodeIdentity) Size() (n int) {
 	if m == nil {
@@ -194,8 +210,10 @@ func (m *NodeIdentity) Size() (n int) {
 	}
 	l = m.TendermintNodeID.Size()
 	n += 1 + l + sovRegistry(uint64(l))
-	l = m.ValidatorPublicKey.Size()
-	n += 1 + l + sovRegistry(uint64(l))
+	if m.ValidatorPublicKey != nil {
+		l = m.ValidatorPublicKey.Size()
+		n += 1 + l + sovRegistry(uint64(l))
+	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
 	}
@@ -203,14 +221,7 @@ func (m *NodeIdentity) Size() (n int) {
 }
 
 func sovRegistry(x uint64) (n int) {
-	for {
-		n++
-		x >>= 7
-		if x == 0 {
-			break
-		}
-	}
-	return n
+	return (math_bits.Len64(x|1) + 6) / 7
 }
 func sozRegistry(x uint64) (n int) {
 	return sovRegistry(uint64((x << 1) ^ uint64((int64(x) >> 63))))
@@ -370,6 +381,8 @@ func (m *NodeIdentity) Unmarshal(dAtA []byte) error {
 			if postIndex > l {
 				return io.ErrUnexpectedEOF
 			}
+			var v github_com_hyperledger_burrow_crypto.PublicKey
+			m.ValidatorPublicKey = &v
 			if err := m.ValidatorPublicKey.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
 				return err
 			}
@@ -380,10 +393,7 @@ func (m *NodeIdentity) Unmarshal(dAtA []byte) error {
 			if err != nil {
 				return err
 			}
-			if skippy < 0 {
-				return ErrInvalidLengthRegistry
-			}
-			if (iNdEx + skippy) < 0 {
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
 				return ErrInvalidLengthRegistry
 			}
 			if (iNdEx + skippy) > l {
@@ -402,6 +412,7 @@ func (m *NodeIdentity) Unmarshal(dAtA []byte) error {
 func skipRegistry(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
+	depth := 0
 	for iNdEx < l {
 		var wire uint64
 		for shift := uint(0); ; shift += 7 {
@@ -433,10 +444,8 @@ func skipRegistry(dAtA []byte) (n int, err error) {
 					break
 				}
 			}
-			return iNdEx, nil
 		case 1:
 			iNdEx += 8
-			return iNdEx, nil
 		case 2:
 			var length int
 			for shift := uint(0); ; shift += 7 {
@@ -457,55 +466,30 @@ func skipRegistry(dAtA []byte) (n int, err error) {
 				return 0, ErrInvalidLengthRegistry
 			}
 			iNdEx += length
-			if iNdEx < 0 {
-				return 0, ErrInvalidLengthRegistry
-			}
-			return iNdEx, nil
 		case 3:
-			for {
-				var innerWire uint64
-				var start int = iNdEx
-				for shift := uint(0); ; shift += 7 {
-					if shift >= 64 {
-						return 0, ErrIntOverflowRegistry
-					}
-					if iNdEx >= l {
-						return 0, io.ErrUnexpectedEOF
-					}
-					b := dAtA[iNdEx]
-					iNdEx++
-					innerWire |= (uint64(b) & 0x7F) << shift
-					if b < 0x80 {
-						break
-					}
-				}
-				innerWireType := int(innerWire & 0x7)
-				if innerWireType == 4 {
-					break
-				}
-				next, err := skipRegistry(dAtA[start:])
-				if err != nil {
-					return 0, err
-				}
-				iNdEx = start + next
-				if iNdEx < 0 {
-					return 0, ErrInvalidLengthRegistry
-				}
-			}
-			return iNdEx, nil
+			depth++
 		case 4:
-			return iNdEx, nil
+			if depth == 0 {
+				return 0, ErrUnexpectedEndOfGroupRegistry
+			}
+			depth--
 		case 5:
 			iNdEx += 4
-			return iNdEx, nil
 		default:
 			return 0, fmt.Errorf("proto: illegal wireType %d", wireType)
 		}
+		if iNdEx < 0 {
+			return 0, ErrInvalidLengthRegistry
+		}
+		if depth == 0 {
+			return iNdEx, nil
+		}
 	}
-	panic("unreachable")
+	return 0, io.ErrUnexpectedEOF
 }
 
 var (
-	ErrInvalidLengthRegistry = fmt.Errorf("proto: negative length found during unmarshaling")
-	ErrIntOverflowRegistry   = fmt.Errorf("proto: integer overflow")
+	ErrInvalidLengthRegistry        = fmt.Errorf("proto: negative length found during unmarshaling")
+	ErrIntOverflowRegistry          = fmt.Errorf("proto: integer overflow")
+	ErrUnexpectedEndOfGroupRegistry = fmt.Errorf("proto: unexpected end of group")
 )

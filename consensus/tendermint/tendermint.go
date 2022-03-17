@@ -6,6 +6,8 @@ import (
 	"os"
 	"path"
 
+	"github.com/tendermint/tendermint/version"
+
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/consensus/abci"
 	"github.com/hyperledger/burrow/crypto"
@@ -21,21 +23,29 @@ import (
 	dbm "github.com/tendermint/tm-db"
 )
 
+func init() {
+	// Tendermint now sets this dynamically in it's build... we could also automate setting it
+	version.TMCoreSemVer = "0.34.3"
+}
+
 // Serves as a wrapper around the Tendermint node's closeable resources (database connections)
 type Node struct {
 	*node.Node
 	closers []interface {
-		Close()
+		Close() error
 	}
 }
 
-func DBProvider(ID string, backendType dbm.DBBackendType, dbDir string) dbm.DB {
+func DBProvider(ID string, backendType dbm.BackendType, dbDir string) (dbm.DB, error) {
 	return dbm.NewDB(ID, backendType, dbDir)
 }
 
 // Since Tendermint doesn't close its DB connections
 func (n *Node) DBProvider(ctx *node.DBContext) (dbm.DB, error) {
-	db := DBProvider(ctx.ID, dbm.DBBackendType(ctx.Config.DBBackend), ctx.Config.DBDir())
+	db, err := DBProvider(ctx.ID, dbm.BackendType(ctx.Config.DBBackend), ctx.Config.DBDir())
+	if err != nil {
+		return nil, err
+	}
 	n.closers = append(n.closers, db)
 	return db, nil
 }
@@ -47,7 +57,7 @@ func (n *Node) Close() {
 }
 
 func NewNode(conf *config.Config, privValidator tmTypes.PrivValidator, genesisDoc *tmTypes.GenesisDoc,
-	app *abci.App, metricsProvider node.MetricsProvider, logger *logging.Logger) (*Node, error) {
+	app *abci.App, metricsProvider node.MetricsProvider, logger *logging.Logger, options ...node.Option) (*Node, error) {
 
 	var err error
 	// disable Tendermint's RPC
@@ -67,7 +77,8 @@ func NewNode(conf *config.Config, privValidator tmTypes.PrivValidator, genesisDo
 		nde.DBProvider,
 		metricsProvider,
 		NewLogger(logger.WithPrefix(structure.ComponentKey, structure.Tendermint).
-			With(structure.ScopeKey, "tendermint.NewNode")))
+			With(structure.ScopeKey, "tendermint.NewNode")),
+		options...)
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +103,12 @@ func DeriveGenesisDoc(burrowGenesisDoc *genesis.GenesisDoc, appHash []byte) *tmT
 	consensusParams.Block.TimeIotaMs = 1
 
 	return &tmTypes.GenesisDoc{
-		ChainID:         burrowGenesisDoc.ChainID(),
+		ChainID:         burrowGenesisDoc.GetChainID(),
 		GenesisTime:     burrowGenesisDoc.GenesisTime,
 		Validators:      validators,
 		AppHash:         appHash,
 		ConsensusParams: consensusParams,
+		InitialHeight:   1,
 	}
 }
 

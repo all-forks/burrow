@@ -13,18 +13,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hyperledger/burrow/rpc"
+	"github.com/hyperledger/burrow/rpc/lib/jsonrpc"
+
+	tmjson "github.com/tendermint/tendermint/libs/json"
+
 	"github.com/hyperledger/burrow/integration"
 	"github.com/hyperledger/burrow/txs/payload"
 
 	"github.com/hyperledger/burrow/core"
 
-	"github.com/hyperledger/burrow/rpc/lib/client"
-
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/event"
 	"github.com/hyperledger/burrow/execution/exec"
 	"github.com/hyperledger/burrow/integration/rpctest"
-	"github.com/hyperledger/burrow/rpc"
 	"github.com/hyperledger/burrow/rpc/rpcinfo/infoclient"
 	"github.com/hyperledger/burrow/rpc/rpctransact"
 	"github.com/hyperledger/burrow/txs"
@@ -39,10 +41,10 @@ func TestInfoServer(t *testing.T) {
 	kern, shutdown := integration.RunNode(t, rpctest.GenesisDoc, rpctest.PrivateAccounts)
 	defer shutdown()
 	inputAddress := rpctest.PrivateAccounts[0].GetAddress()
-	infoAddress := kern.InfoListenAddress().String()
-	var clients = map[string]infoclient.RPCClient{
-		"JSON RPC": client.NewJSONRPCClient(infoAddress),
-		"URI":      client.NewURIClient(infoAddress),
+	infoAddress := "http://" + kern.InfoListenAddress().String()
+	var clients = map[string]rpc.Client{
+		"JSON RPC": jsonrpc.NewClient(infoAddress),
+		"URI":      jsonrpc.NewURIClient(infoAddress),
 	}
 	cli := rpctest.NewTransactClient(t, kern.GRPCListenAddress().String())
 	for clientName, rpcClient := range clients {
@@ -52,7 +54,7 @@ func TestInfoServer(t *testing.T) {
 				resp, err := infoclient.Status(rpcClient)
 				require.NoError(t, err)
 				assert.Contains(t, resp.GetNodeInfo().GetMoniker(), "node")
-				assert.Equal(t, rpctest.GenesisDoc.ChainID(), resp.NodeInfo.Network,
+				assert.Equal(t, rpctest.GenesisDoc.GetChainID(), resp.NodeInfo.Network,
 					"ChainID should match NodeInfo.Network")
 			})
 
@@ -212,9 +214,8 @@ func TestInfoServer(t *testing.T) {
 				bs, err := json.Marshal(rawMap)
 				require.NoError(t, err)
 
-				cdc := rpc.NewAminoCodec()
 				rs := new(ctypes.RoundState)
-				err = cdc.UnmarshalJSON(bs, rs)
+				err = tmjson.Unmarshal(bs, rs)
 				require.NoError(t, err)
 
 				assert.Equal(t, rs.Validators.Validators[0].Address, rs.Validators.Proposer.Address)

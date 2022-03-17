@@ -14,7 +14,6 @@ import (
 	"github.com/hyperledger/burrow/binary"
 	"github.com/hyperledger/burrow/crypto"
 	"github.com/hyperledger/burrow/encoding"
-	"github.com/hyperledger/burrow/encoding/rlp"
 	"github.com/hyperledger/burrow/event/query"
 	"github.com/hyperledger/burrow/txs/payload"
 )
@@ -66,7 +65,7 @@ func (tx *Tx) MustSignBytes() []byte {
 }
 
 // Produces the canonical SignBytes (the Tx message that will be signed) for a Tx
-func (tx *Tx) SignBytes(enc Envelope_Encoding) ([]byte, error) {
+func (tx *Tx) SignBytes(enc Envelope_EncodingType) ([]byte, error) {
 	switch enc {
 	case Envelope_JSON:
 		bs, err := json.Marshal(tx)
@@ -75,36 +74,35 @@ func (tx *Tx) SignBytes(enc Envelope_Encoding) ([]byte, error) {
 		}
 		return bs, nil
 	case Envelope_RLP:
-		switch pay := tx.Payload.(type) {
-		case *payload.CallTx:
-			input := pay.Input
-			return RLPEncode(
-				input.Sequence-1,
-				pay.GasPrice,
-				pay.GasLimit,
-				pay.Address.Bytes(),
-				balance.NativeToWei(input.Amount).Bytes(),
-				pay.Data.Bytes(),
-			)
-		default:
-			return nil, fmt.Errorf("tx type %v not supported for rlp encoding", tx.Payload.Type())
+		rawTx, err := tx.RLPRawTx()
+		if err != nil {
+			return nil, err
 		}
+		return rawTx.SignBytes()
 	default:
 		return nil, fmt.Errorf("encoding type %s not supported", enc.String())
 	}
 }
 
-func RLPEncode(seq, gasPrice, gasLimit uint64, address, amount, data []byte) ([]byte, error) {
-	return rlp.Encode([]interface{}{
-		seq,       // nonce
-		gasPrice,  // gasPrice
-		gasLimit,  // gasLimit
-		address,   // to
-		amount,    // value
-		data,      // data
-		uint64(1), // chainID
-		uint(0), uint(0),
-	})
+func (tx *Tx) RLPRawTx() (*EthRawTx, error) {
+	switch payload := tx.Payload.(type) {
+	case *payload.CallTx:
+		var to []byte
+		if payload.Address != nil {
+			to = payload.Address.Bytes()
+		}
+		return &EthRawTx{
+			Sequence: payload.Input.Sequence,
+			GasPrice: payload.GasPrice,
+			GasLimit: payload.GasLimit,
+			To:       to,
+			Amount:   balance.NativeToWei(payload.Input.Amount),
+			Data:     payload.Data.Bytes(),
+			chainID:  encoding.GetEthChainID(tx.ChainID),
+		}, nil
+	default:
+		return nil, fmt.Errorf("tx type %v not supported for rlp encoding", tx.Payload.Type())
+	}
 }
 
 // Serialisation intermediate for switching on type

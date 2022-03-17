@@ -20,11 +20,14 @@ import (
 	"github.com/hyperledger/burrow/logging"
 	"github.com/hyperledger/burrow/rpc"
 	"github.com/hyperledger/burrow/txs/payload"
-	"github.com/tendermint/tendermint/abci/types"
+	tmproto "github.com/tendermint/tendermint/proto/tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type queryServer struct {
+	UnimplementedQueryServer
 	state      QueryState
 	blockchain bcm.BlockchainInfo
 	nodeView   *tendermint.NodeView
@@ -150,7 +153,7 @@ func (qs *queryServer) ListAccounts(param *ListAccountsParam, stream Query_ListA
 func (qs *queryServer) GetName(ctx context.Context, param *GetNameParam) (entry *names.Entry, err error) {
 	entry, err = qs.state.GetName(param.Name)
 	if entry == nil && err == nil {
-		err = fmt.Errorf("name %s not found", param.Name)
+		err = status.Error(codes.NotFound, fmt.Sprintf("name %s not found", param.Name))
 	}
 	return
 }
@@ -255,7 +258,7 @@ func (qs *queryServer) GetStats(ctx context.Context, param *GetStatsParam) (*Sta
 
 // Tendermint and blocks
 
-func (qs *queryServer) GetBlockHeader(ctx context.Context, param *GetBlockParam) (*types.Header, error) {
+func (qs *queryServer) GetBlockHeader(ctx context.Context, param *GetBlockParam) (*tmproto.Header, error) {
 	header, err := qs.blockchain.GetBlockHeader(param.Height)
 	if err != nil {
 		return nil, err

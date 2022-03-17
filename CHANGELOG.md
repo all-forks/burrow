@@ -1,4 +1,223 @@
 # [Hyperledger Burrow](https://github.com/hyperledger/burrow) Changelog
+## [0.34.4] - 2021-07-23
+### Changed
+- [JS] Make deploy and deployContract take deps argument consisting of deployment options and library object. The library object makes it easier to pass an identical object with the addresses of commonly used libraries under their canonical names.
+
+
+## [0.34.3] - 2021-07-19
+### Fixed
+- [JS] Fix spelling of 'contractName' in solts, add contract name to contract object.
+
+### Added
+- [JS] Added option to build.ts code generation to not fail on Solidity compiler warnings, which is now the default. Warnings are still logged to stderr
+
+
+## [0.34.2] - 2021-07-09
+### Fixed
+- [Build] Add 0.34.1 changes!
+
+
+## [0.34.1] - 2021-07-09
+### Fixed
+- [JS] build function does not swallow errors without a formattedMessage, chdir into basepath before build so solc imports work as expected
+
+
+## [0.34.0] - 2021-05-28
+### Changed
+- [JS] Provider interface no longer depends on GRPC types to improve compatibility between versions of Burrow.js and ease of extension
+- [JS] Use non-unique marker interface to indicate stream cancellation in event reducer (again for compatibility between versions and extensibility)
+- [Go] Upgrade to Go 1.16
+
+### Fixed
+- [JS] Fix codegen silently swallowing collisions of abi files (renamed from .bin to .abi) and use hierarchical directory structure to further reduce chance of collision
+- [JS] Just depende on @ethersproject/abi rather than entire umbrella project
+
+### Added
+- [JS] Include deployedBycode and optionally submit ABI's to Burrow's contract metadata store on deploy
+
+
+## [0.33.1] - 2021-05-24
+### Fixed
+- [JS] Return bytesNN as Buffer to agree with typings
+
+### Added
+- [JS] Inline sources and source maps
+
+
+## [0.33.0] - 2021-05-24
+### Changed
+- [JS] Changed Burrow interface and renamed Burrow client object to to Client (merging in features needed for solts support)
+
+### Fixed
+- [JS] Fixed RLP encoding extra leading zeros on uint64 (thanks Matthieu Vachon!)
+- [JS] Improved compatibility with legacy Solidity bytes types and padding conventions
+- [Events] Fixed Burrow event stream wrongly switching to streaming mode for block ranges that are available in state (when the latest block is an empty block - so not stored in state)
+
+### Added
+- [JS] Added Solidity-to-Typescript code generation support (merging in solts) - this provides helpers (build.ts, api.ts) to compile Solidity files into corresponding .abi.ts files that include types for functions, events, the ABI, and EVM bytecode, and includes bindings into Burrow JS to deploy and interact with contracts via Typescript/Javascript with strong static types
+- [JS] Improved interactions with events which can now be queried over any range and with strong types, see the listenerFor, reduceEvents, readEvents, and iterateEvents functions.
+
+
+## [0.32.1] - 2021-05-15
+### Changed
+- [Execution] CallErrors no longer emit very long rather pointless (since there is no tooling to help interpret them currently) EVM call traces
+- [JS] Return byte arrays as Buffers from decode (only return fixed-width byteNN types as hex strings)
+
+
+## [0.32.0] - 2021-05-14
+### Changed
+- [JS] Significant refactor/rewrite of Burrow.js into idiomatic Typescript including some breaking changes to API
+- [JS] Change to use ethers.js for ABI encoding
+
+### Fixed
+- [State] Fixed cache-concurrency bug (https://github.com/hyperledger/burrow/commit/314357e0789b0ec7033a2a419b816d2f1025cad0) and ensured consistency snapshot is used when performing simulated call reads
+- [Web3] Omit empty values from JSONRPC calls
+
+### Added
+- [Tendermint] Added support for passing node options to Tendermint - e.g. custom reactors (thanks @nmanchovski!)
+- [JS] Historic events can now be requested via API
+- [JS] Contract deployments will now include ABIs via contract metadata so Burrow's ABI registry can be used
+
+
+## [0.31.3] - 2020-03-25
+### Fixed
+- [Dump] Make load from dump set tx index so BlockAccumulator continuity conditions are met
+- [Dump] Improve error messages
+
+
+## [0.31.2] - 2020-03-24
+### Fixed
+- [Dump] Stop TxStack EventStream consumer from rejecting events from dump/restored chain because they lack tx Envelopes (as they are intended to to keep dump format minimal)
+- [Genesis] Fix hash instability introduced by accidentally removing omitempty from AppHash in genesis
+
+### Added
+- [Vent] Implement throttling on Ethereum Vent consumer via --max-request-rate=<requests / time base> flag to 'vent start'
+
+
+## [0.31.1] - 2020-03-19
+### Changed
+- [Repo] main branch replaces master as per Hyperledger TSC guidelines
+
+### Fixed
+- [Docker] Make sure default testnet mode works when running docker images
+- [Vent] Use appropriately sized database integral types for EVM integer types (i.e. numeric for uint64 and bigger)
+- [Vent] Ethereum block consumer now correctly reads to an _inclusive_ block batch end height
+- [Web3] Handle integer ChainID for web3 consistently; return hex-encoded numeric value from web3 RPC, also allow overriding of genesis-hash derived ChainID so Burrow can be connected with from metamask
+
+### Added
+- [Build] Build dev docker and JS releases by force pushing to prerelease branch
+- [Vent] Expose BlockConsumerConfig to adjust backoff and read characteristics
+- [Vent] Add vent-side continuity test over blocks (to double-check exactly once delivery of events)
+
+
+## [0.31.0] - 2020-03-10
+### Changed
+- [Tendermint] Upgraded to Tendermint 0.34.3
+- [Docker] Image will now start testnet by default
+
+### Added
+- [Vent] Added support for building Vent SQL tables from Ethereum web3 JSONRPC chains (useful for oracles/state channels with layer 1)
+- [Vent] Added Status to healthcheck endpoint on Vent
+- [Natives] Implemented ecrecover using btcec (revised key handling)
+- [Engine] Implement cross-engine dispatch
+- [WASM] Implement cross-engine calls and calls to precompiles
+- [WASM] Significantly extend eWASM support and implement functions
+- [WASM] Add printing debug functions
+- [WASM] Implement CREATE, GETTXGASPRICE, GETBLOCKDIFFICULTY, SELFDESTRUCT eWASM functions (thanks Yoongbok Lee!)
+- [WASM/JS] JS library supports deploying WASM code
+- [Deploy] Can specify WASM in playbook
+- [EVM] Implement CHAINID and DIFFICULTY opcodes
+- [Query] PEG query grammar now supports Not ("NOT") and NotEqual ("!=") operators
+
+### Fixed
+- [Deploy] Fix flaky parallel tests
+- [EVM] Use correct opcode for create2 (thanks Vitali Grabovski!)
+- [ABI] Check length of input before decoding (thanks Tri-stone!)
+- [WASM] Constructor argument handling
+- [RLP] Incorrect use of offsets for longer bytes strings
+- [RLP] Use minimal encoding for length prefixes (no leading zeros)
+- [Web3] Generate correct encoding hash for RawTx (ChainID in hash digest but not payload)
+- [Web3] Generate canonical weird Ethereum hex
+- [State] Fix read concurrency in RWTree (on which state is based) removing need for CallSim lock workaround
+
+### Security
+- Updated elliptic JS dep to 6.5.3
+- Updated lodash to 4.17.19
+
+
+## [0.30.5] - 2020-07-09
+### Added
+- [Vent] Add BytesToHex flag on projection field mappings that causes bytes fields (e.g. bytes32) solidity fields to be hex-encoded and mapped to varchar(64) rather than bytea/blob columns in postgres/sqlite
+
+
+## [0.30.4] - 2020-04-05
+### Added
+- [Build] Added Helm chart
+- [State] Account now has EVMOpcodeBitset field to support upcoming EVM fixes
+
+### Fixed
+- [JS] Github actions release of JS lib
+
+
+## [0.30.3] - 2020-04-05
+### Added
+- [CLI] Made previously internal Solidity Go fixtures compilation available through 'burrow compile'
+- [TS] Default ts client interface implementation
+
+
+## [0.30.2] - 2020-03-13
+### Fixed
+- [RPC] add mutex to callSim and callCode
+
+
+## [0.30.1] - 2020-03-06
+### Fixed
+- [CLI/Tx] Unbond formulation now specifies amount
+
+
+## [0.30.0] - 2020-03-05
+### Changed
+- [JS] Partial rewrite of client API in typescript
+
+### Fixed
+- [State] Blockchain now commits initial AppHash to avoid IAVL panic
+
+
+## [0.29.8] - 2020-02-11
+### Fixed
+- [ABI] Fix failure to convert crypto.Address to EVMAddress (https://github.com/hyperledger/burrow/issues/1326)
+
+
+## [0.29.7] - 2020-01-27
+### Fixed
+- [Build] Updates to CI build process
+
+
+## [0.29.6] - 2020-01-22
+### Changed
+- [CLI] Burrow dump can now stream to STDOUT
+
+### Fixed
+- [NPM] Burrow-js is now published via an auth token
+
+
+## [0.29.5] - 2019-12-09
+### Security
+- [Tendermint] Upgraded to v0.32.8, checkTxAsync now includes node ID
+
+### Changed
+- [Vent] Sync every block height to DB and send height notification from _vent_chain table so downstream can check DB sync without --blocks
+- [RPC/Query] GetName now returns GRPC NotFound status (rather than unknown) when a requested key is not set.
+
+### Fixed
+- [Execution] Simulated calls (e.g. query contracts) now returns the height of the state on which the query was run. Useful for downstream sync.
+
+
+## [0.29.4] - 2019-11-22
+### Changed
+- [Build] Move to solidity 0.5.12
+
+
 ## [0.29.3] - 2019-10-16
 ### Changed
 - [NPM] Point package.json to index.js
@@ -18,7 +237,7 @@
 ### Changed
 - [Config] Reverted rename of ValidatorAddress to Address in config (each Burrow node has a specific validator key it uses for signing whether or not it is running as a validator right now)
 
-### Fixed 
+### Fixed
 - [EVM] Return integer overflow error code (not stack overflow) for integer overflow errors
 - [Docs] Fix broken examples
 - [Deploy] Set input on QueryContract jobs correctly
@@ -593,6 +812,30 @@ This release marks the start of Eris-DB as the full permissioned blockchain node
   - [Blockchain] Fix getBlocks to respect block height cap.
 
 
+[0.34.4]: https://github.com/hyperledger/burrow/compare/v0.34.3...v0.34.4
+[0.34.3]: https://github.com/hyperledger/burrow/compare/v0.34.2...v0.34.3
+[0.34.2]: https://github.com/hyperledger/burrow/compare/v0.34.1...v0.34.2
+[0.34.1]: https://github.com/hyperledger/burrow/compare/v0.34.0...v0.34.1
+[0.34.0]: https://github.com/hyperledger/burrow/compare/v0.33.1...v0.34.0
+[0.33.1]: https://github.com/hyperledger/burrow/compare/v0.33.0...v0.33.1
+[0.33.0]: https://github.com/hyperledger/burrow/compare/v0.32.1...v0.33.0
+[0.32.1]: https://github.com/hyperledger/burrow/compare/v0.32.0...v0.32.1
+[0.32.0]: https://github.com/hyperledger/burrow/compare/v0.31.3...v0.32.0
+[0.31.3]: https://github.com/hyperledger/burrow/compare/v0.31.2...v0.31.3
+[0.31.2]: https://github.com/hyperledger/burrow/compare/v0.31.1...v0.31.2
+[0.31.1]: https://github.com/hyperledger/burrow/compare/v0.31.0...v0.31.1
+[0.31.0]: https://github.com/hyperledger/burrow/compare/v0.30.5...v0.31.0
+[0.30.5]: https://github.com/hyperledger/burrow/compare/v0.30.4...v0.30.5
+[0.30.4]: https://github.com/hyperledger/burrow/compare/v0.30.3...v0.30.4
+[0.30.3]: https://github.com/hyperledger/burrow/compare/v0.30.2...v0.30.3
+[0.30.2]: https://github.com/hyperledger/burrow/compare/v0.30.1...v0.30.2
+[0.30.1]: https://github.com/hyperledger/burrow/compare/v0.30.0...v0.30.1
+[0.30.0]: https://github.com/hyperledger/burrow/compare/v0.29.8...v0.30.0
+[0.29.8]: https://github.com/hyperledger/burrow/compare/v0.29.7...v0.29.8
+[0.29.7]: https://github.com/hyperledger/burrow/compare/v0.29.6...v0.29.7
+[0.29.6]: https://github.com/hyperledger/burrow/compare/v0.29.5...v0.29.6
+[0.29.5]: https://github.com/hyperledger/burrow/compare/v0.29.4...v0.29.5
+[0.29.4]: https://github.com/hyperledger/burrow/compare/v0.29.3...v0.29.4
 [0.29.3]: https://github.com/hyperledger/burrow/compare/v0.29.2...v0.29.3
 [0.29.2]: https://github.com/hyperledger/burrow/compare/v0.29.1...v0.29.2
 [0.29.1]: https://github.com/hyperledger/burrow/compare/v0.29.0...v0.29.1
